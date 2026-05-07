@@ -1,0 +1,44 @@
+{
+  "entities": {
+    "PlayerData": {
+      "title": "PlayerData",
+      "description": "Full player profile and progress",
+      "type": "object",
+      "properties": {
+        "name": { "type": "string" },
+        "class": { "type": "string" },
+        "level": { "type": "number" },
+        "exp": { "type": "number" },
+        "maxExp": { "type": "number" },
+        "gold": { "type": "number" },
+        "gems": { "type": "number" },
+        "stats": { "type": "object" },
+        "inventory": { "type": "array" },
+        "equipped": { "type": "object" },
+        "dungeonLevel": { "type": "number" },
+        "shadowArmy": { "type": "number" },
+        "sortOrder": { "type": "string" },
+        "activeQuests": { "type": "array" },
+        "skills": { "type": "array" },
+        "skillPoints": { "type": "number" },
+        "attributePoints": { "type": "number" },
+        "activeSetBonuses": { "type": "array" },
+        "currentPet": { "type": "object" },
+        "lastDailyReward": { "type": "number" },
+        "unlockedGates": { "type": "array" },
+        "currentGateId": { "type": "number" },
+        "shopInventory": { "type": "array" },
+        "lastShopRefresh": { "type": "number" },
+        "updatedAt": { "type": "string", "format": "date-time" },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["name", "class", "level", "gold", "gems", "stats", "inventory", "equipped", "dungeonLevel"]
+    }
+  },
+  "firestore": {
+    "users/{userId}": {
+      "schema": "PlayerData",
+      "description": "User progress and inventory"
+    }
+  }
+}

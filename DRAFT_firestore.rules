@@ -1,0 +1,58 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // Default Deny
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    // Global Helpers
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function isOwner(userId) {
+      return isSignedIn() && request.auth.uid == userId;
+    }
+
+    function incoming() {
+      return request.resource.data;
+    }
+
+    function existing() {
+      return resource.data;
+    }
+
+    function isValidId(id) {
+      return id is string && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$');
+    }
+
+    function isValidPlayerData(data) {
+      return data.name is string && data.name.size() <= 50
+        && data.class is string && data.class.size() <= 50
+        && data.level is number && data.level >= 1
+        && data.gold is number && data.gold >= 0
+        && data.gems is number && data.gems >= 0
+        && data.dungeonLevel is number && data.dungeonLevel >= 0
+        && data.stats is map
+        && data.inventory is list
+        && data.equipped is map;
+    }
+
+    match /users/{userId} {
+      allow get: if isOwner(userId);
+      
+      allow create: if isOwner(userId) 
+        && isValidPlayerData(incoming())
+        && incoming().createdAt == request.time
+        && incoming().updatedAt == request.time;
+      
+      allow update: if isOwner(userId)
+        && isValidPlayerData(incoming())
+        && incoming().createdAt == existing().createdAt
+        && incoming().updatedAt == request.time;
+        
+      allow delete: if false; // Users cannot delete profiles for now
+    }
+  }
+}

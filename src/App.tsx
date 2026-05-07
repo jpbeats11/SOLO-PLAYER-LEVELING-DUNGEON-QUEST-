@@ -5,7 +5,7 @@ import {
   Settings, ShoppingBag, Hammer, Play, Pause, RefreshCw, 
   ChevronRight, Brain, Wind, Droplets, Ghost, Target,
   Star, Coins, Gem, Heart, Trophy, Crown, Layers, HandMetal,
-  CircleDot, Diamond, Circle, Award, ArrowLeft, X
+  CircleDot, Diamond, Circle, Award, ArrowLeft, X, Database
 } from 'lucide-react';
 import { useGameState } from './gameState';
 import { CLASSES, RARITY_COLORS, SLOTS } from './constants';
@@ -22,19 +22,20 @@ export default function App() {
     ariseAvailable, arise, hasStarted, setHasStarted,
     battleLog, upgradeItem, buyChest, buySpecificItem, summonShadow, recycleItems, triggerAutoEquip,
     setSortOrder, sortedInventory, upgradeSkill, floorModifier, resetSave,
-    claimDailyReward, switchGate, unequip, allocateAttribute, equipItem, discardItem
+    claimDailyReward, switchGate, unequip, allocateAttribute, equipItem, discardItem,
+    user, login, logout, loading: firebaseLoading
   } = useGameState() as any;
 
   const [view, setView] = useState<'dashboard' | 'dungeon' | 'inventory' | 'shop' | 'blacksmith' | 'quests' | 'skills' | 'summons' | 'gates'>('dashboard');
   const [logFilter, setLogFilter] = useState<'all' | 'victory' | 'loot' | 'system'>('all');
-  const [loading, setLoading] = useState(true);
+  const [appLoading, setAppLoading] = useState(true);
 
   useEffect(() => {
-    const timer = setTimeout(() => setLoading(false), 2000);
+    const timer = setTimeout(() => setAppLoading(false), 2000);
     return () => clearTimeout(timer);
   }, []);
 
-  if (loading) {
+  if (appLoading || firebaseLoading) {
     return (
       <div className="min-h-screen bg-black flex flex-col items-center justify-center font-mono p-4 overflow-hidden relative">
         <div className="absolute inset-0 bg-[radial-gradient(circle_at_center,_var(--tw-gradient-stops))] from-cyan-900/10 via-transparent to-transparent opacity-50" />
@@ -72,66 +73,25 @@ export default function App() {
     );
   }
 
-  if (!player) {
-    return <CharacterCreation onCreate={createCharacter} />;
+  if (!player && !user) {
+    return <LandingPage login={login} onStart={() => setHasStarted(true)} />;
   }
 
-  if (view === 'dashboard' && !hasStarted) {
+  if (!player && user) {
     return (
-      <div className="min-h-screen bg-black flex flex-col items-center justify-center p-8 font-mono relative overflow-hidden">
-        <div className="absolute inset-0 bg-[url('https://images.unsplash.com/photo-1518709268805-4e9042af9f23?q=80&w=2000&auto=format&fit=crop')] bg-cover bg-center opacity-20" />
-        <div className="absolute inset-0 bg-gradient-to-t from-black via-black/80 to-transparent" />
-        
-        <motion.div 
-          initial={{ opacity: 0, y: 30 }}
-          animate={{ opacity: 1, y: 0 }}
-          transition={{ duration: 1, ease: "easeOut" }}
-          className="text-center z-10"
-        >
-          <motion.div
-            animate={{ y: [0, -10, 0] }}
-            transition={{ duration: 4, repeat: Infinity, ease: "easeInOut" }}
-          >
-            <h1 className="text-7xl font-black text-white italic tracking-tighter mb-2 drop-shadow-[0_0_30px_rgba(255,255,255,0.3)]">SOLO PLAYER</h1>
-            <h2 className="text-2xl font-black text-yellow-500 mb-20 tracking-[0.4em] uppercase drop-shadow-[0_0_15px_rgba(234,179,8,0.5)]">Eternal Ascent</h2>
-          </motion.div>
-          
-          <div className="relative inline-block">
-             <motion.div
-               animate={{ scale: [1, 1.2, 1], opacity: [0.5, 0, 0.5] }}
-               transition={{ duration: 2, repeat: Infinity }}
-               className="absolute inset-0 bg-cyan-500/20 rounded-full blur-xl"
-             />
-             <motion.button
-              whileHover={{ scale: 1.05 }}
-              whileTap={{ scale: 0.95 }}
-              onClick={() => {
-                setHasStarted(true);
-                setView('dashboard');
-              }}
-              className="relative z-10 text-cyan-400 font-black tracking-[0.3em] text-sm uppercase px-12 py-5 border-2 border-cyan-500/50 rounded-full bg-cyan-950/40 backdrop-blur-md hover:bg-cyan-900/50 transition-all shadow-[0_0_30px_rgba(6,182,212,0.3)]"
-            >
-              TAP TO ENTER SYSTEM
-            </motion.button>
-          </div>
-          
-          <div className="mt-20 flex gap-8 justify-center opacity-40">
-             <div className="flex flex-col items-center">
-                <Shield size={20} className="text-gray-500 mb-1" />
-                <span className="text-[8px] uppercase font-bold tracking-widest text-gray-500">Secure Data</span>
-             </div>
-             <div className="flex flex-col items-center">
-                <Zap size={20} className="text-gray-500 mb-1" />
-                <span className="text-[8px] uppercase font-bold tracking-widest text-gray-500">Auto Save</span>
-             </div>
-             <div className="flex flex-col items-center">
-                <Target size={20} className="text-gray-500 mb-1" />
-                <span className="text-[8px] uppercase font-bold tracking-widest text-gray-500">Offline RPG</span>
-             </div>
-          </div>
-        </motion.div>
+      <div className="min-h-screen bg-[#0a0a0f] text-white">
+        <div className="fixed top-4 right-4 z-50">
+           <button onClick={logout} className="text-[10px] font-black text-gray-500 hover:text-white uppercase tracking-widest bg-gray-900/40 px-3 py-1.5 rounded-full border border-gray-800">
+             Logout
+           </button>
+        </div>
+        <CharacterCreation onCreate={createCharacter} />
       </div>
     );
+  }
+
+  if (!hasStarted) {
+    return <EntryScreen player={player} user={user} login={login} logout={logout} onStart={() => setHasStarted(true)} />;
   }
 
   return (
@@ -159,8 +119,8 @@ export default function App() {
             <Gem size={14} className="text-cyan-400" />
             <span className="text-xs font-mono text-cyan-400">{player.gems.toLocaleString()}</span>
           </div>
-          <button onClick={resetSave} className="p-2 text-gray-500 hover:text-white transition-colors">
-            <Settings size={20} />
+          <button onClick={logout} className="p-2 text-gray-500 hover:text-white transition-colors" title="Logout">
+            <X size={20} />
           </button>
         </div>
       </div>
@@ -223,6 +183,7 @@ export default function App() {
                 autoEquip={triggerAutoEquip}
                 equipItem={equipItem}
                 discardItem={discardItem}
+                unequip={unequip}
                 setView={setView}
               />
             </motion.div>
@@ -242,7 +203,7 @@ export default function App() {
           {view === 'quests' && (
             <motion.div key="quests" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}>
               <ViewHeader title="WORLD QUESTS" onBack={() => setView('dashboard')} />
-              <Quests player={player!} />
+              <Quests player={player!} setView={setView} />
             </motion.div>
           )}
           {view === 'skills' && (
@@ -310,44 +271,125 @@ function ViewHeader({ title, onBack }: { title: string, onBack: () => void }) {
 function CharacterCreation({ onCreate }: { onCreate: (n: string, c: ClassType) => void }) {
   const [name, setName] = useState('');
   const [selectedClass, setSelectedClass] = useState<ClassType>('Warrior');
+  const [isCreating, setIsCreating] = useState(false);
+
+  const handleCreate = () => {
+    if (!name) return;
+    setIsCreating(true);
+    audio.playSkill();
+    setTimeout(() => onCreate(name, selectedClass), 2000);
+  };
+
+  const portraits: Partial<Record<ClassType, string>> = {
+    Warrior: 'https://images.unsplash.com/photo-1552084117-56a987666449?q=80&w=400&auto=format&fit=crop',
+    Mage: 'https://images.unsplash.com/photo-1614850523296-d8c1af93d400?q=80&w=400&auto=format&fit=crop',
+    Archer: 'https://images.unsplash.com/photo-1541535881962-3bb380b08458?q=80&w=400&auto=format&fit=crop',
+    Assassin: 'https://images.unsplash.com/photo-1626761191399-46764bbd9047?q=80&w=400&auto=format&fit=crop',
+    Priest: 'https://images.unsplash.com/photo-1518709268805-4e9042af9f23?q=80&w=400&auto=format&fit=crop',
+    Paladin: 'https://images.unsplash.com/photo-1534447677768-be436bb09401?q=80&w=400&auto=format&fit=crop',
+    Berserker: 'https://images.unsplash.com/photo-1552084117-56a987666449?q=80&w=400&auto=format&fit=crop',
+    'Shadow Monarch': 'https://images.unsplash.com/photo-1626761191399-46764bbd9047?q=80&w=400&auto=format&fit=crop',
+    'Flame Knight': 'https://images.unsplash.com/photo-1552084117-56a987666449?q=80&w=400&auto=format&fit=crop',
+    'Shadow Assassin': 'https://images.unsplash.com/photo-1626761191399-46764bbd9047?q=80&w=400&auto=format&fit=crop',
+    'Ice Mage': 'https://images.unsplash.com/photo-1614850523296-d8c1af93d400?q=80&w=400&auto=format&fit=crop',
+    'Thunder Warrior': 'https://images.unsplash.com/photo-1541535881962-3bb380b08458?q=80&w=400&auto=format&fit=crop',
+    'Holy Paladin': 'https://images.unsplash.com/photo-1534447677768-be436bb09401?q=80&w=400&auto=format&fit=crop',
+    'Dark Necromancer': 'https://images.unsplash.com/photo-1614850523296-d8c1af93d400?q=80&w=400&auto=format&fit=crop',
+    'Dragon Slayer': 'https://images.unsplash.com/photo-1552084117-56a987666449?q=80&w=400&auto=format&fit=crop',
+    'Wind Ranger': 'https://images.unsplash.com/photo-1541535881962-3bb380b08458?q=80&w=400&auto=format&fit=crop',
+    'Blood Samurai': 'https://images.unsplash.com/photo-1552084117-56a987666449?q=80&w=400&auto=format&fit=crop',
+    'Arcane Wizard': 'https://images.unsplash.com/photo-1614850523296-d8c1af93d400?q=80&w=400&auto=format&fit=crop',
+    'Cyber Ninja': 'https://images.unsplash.com/photo-1626761191399-46764bbd9047?q=80&w=400&auto=format&fit=crop',
+    'Titan Guardian': 'https://images.unsplash.com/photo-1534447677768-be436bb09401?q=80&w=400&auto=format&fit=crop',
+    'Poison Hunter': 'https://images.unsplash.com/photo-1541535881962-3bb380b08458?q=80&w=400&auto=format&fit=crop',
+    'Phoenix Queen': 'https://images.unsplash.com/photo-1552084117-56a987666449?q=80&w=400&auto=format&fit=crop',
+    'Storm Monk': 'https://images.unsplash.com/photo-1626761191399-46764bbd9047?q=80&w=400&auto=format&fit=crop',
+    'Beast Tamer': 'https://images.unsplash.com/photo-1541535881962-3bb380b08458?q=80&w=400&auto=format&fit=crop',
+    'Demon Berserker': 'https://images.unsplash.com/photo-1552084117-56a987666449?q=80&w=400&auto=format&fit=crop',
+    'Celestial Angel': 'https://images.unsplash.com/photo-1518709268805-4e9042af9f23?q=80&w=400&auto=format&fit=crop',
+    'Void Reaper': 'https://images.unsplash.com/photo-1614850523296-d8c1af93d400?q=80&w=400&auto=format&fit=crop',
+    'Mecha Soldier': 'https://images.unsplash.com/photo-1534447677768-be436bb09401?q=80&w=400&auto=format&fit=crop'
+  };
 
   return (
-    <div className="min-h-screen bg-[#0a0a0f] text-white p-8 overflow-y-auto">
-      <div className="max-w-md mx-auto py-12">
-        <h2 className="text-3xl font-black mb-8 text-center bg-gradient-to-b from-white to-gray-500 bg-clip-text text-transparent italic">SELECT YOUR PATH</h2>
-        
-        <input 
-          type="text" 
-          placeholder="ENTER HERO NAME" 
-          className="w-full bg-[#151520] border-2 border-gray-800 p-4 mb-8 text-center text-xl font-bold rounded-xl focus:border-red-600 outline-none transition-all placeholder:text-gray-700 uppercase"
-          value={name}
-          onChange={(e) => setName(e.target.value.toUpperCase())}
-        />
-
-        <div className="grid grid-cols-2 gap-3 mb-8">
-          {CLASSES.map(c => (
-            <button 
-              key={c}
-              onClick={() => setSelectedClass(c)}
-              className={`p-4 rounded-xl border-2 transition-all flex flex-col items-center gap-2 ${selectedClass === c ? 'border-red-600 bg-red-900/20' : 'border-gray-800 bg-[#0f0f1a] grayscale opacity-50 hover:opacity-80'}`}
-            >
-              <ClassIcon cls={c} size={32} />
-              <span className="text-xs font-black tracking-widest">{c.toUpperCase()}</span>
-            </button>
-          ))}
-        </div>
-
-        <button 
-          disabled={!name}
-          onClick={() => {
-            audio.playArise();
-            onCreate(name, selectedClass);
-          }}
-          className="w-full bg-red-600 hover:bg-red-700 disabled:bg-gray-800 text-white font-black p-5 rounded-2xl shadow-[0_10px_20px_rgba(220,38,38,0.3)] transition-all active:scale-95"
+    <div className="min-h-screen bg-[#050508] text-white p-6 md:p-12 overflow-y-auto relative font-mono">
+      {/* High-Tech Background */}
+      <div className="absolute inset-0 bg-[url('https://www.transparenttextures.com/patterns/carbon-fibre.png')] opacity-10 pointer-events-none" />
+      <div className="absolute inset-0 bg-gradient-to-t from-black via-black/80 to-transparent pointer-events-none" />
+      
+      {isCreating ? (
+        <motion.div 
+          initial={{ opacity: 0 }}
+          animate={{ opacity: 1 }}
+          className="flex flex-col items-center justify-center min-h-[80vh] text-center"
         >
-          AWAKEN AS {selectedClass.toUpperCase()}
-        </button>
-      </div>
+          <div className="w-24 h-24 border-t-4 border-cyan-500 rounded-full animate-spin mb-8 shadow-[0_0_30px_rgba(6,182,212,0.5)]" />
+          <h2 className="text-4xl font-black italic tracking-tighter text-cyan-400 animate-pulse">SYNCHRONIZING MANA...</h2>
+          <p className="text-gray-500 mt-4 text-xs tracking-[0.5em] uppercase">Rewriting Destiny in the Void</p>
+        </motion.div>
+      ) : (
+        <div className="max-w-2xl mx-auto py-8">
+          <div className="flex flex-col items-center mb-12">
+            <div className="flex items-center gap-4 mb-2 text-cyan-500">
+               <Shield size={24} className="animate-pulse" />
+               <span className="text-[10px] font-black tracking-[0.4em] uppercase">System Awakening // Version 1.0.4</span>
+               <Zap size={24} className="animate-pulse" />
+            </div>
+            <h1 className="text-5xl font-black italic tracking-tighter bg-gradient-to-b from-white to-gray-600 bg-clip-text text-transparent">SELECT HERO PATH</h1>
+          </div>
+
+          <div className="bg-black/40 backdrop-blur-xl border border-white/5 p-8 rounded-3xl shadow-2xl relative overflow-hidden group">
+            <div className="absolute top-0 left-0 w-full h-[1px] bg-gradient-to-r from-transparent via-cyan-500 to-transparent" />
+            
+            <input 
+              type="text" 
+              placeholder="IDENTIFY HERO (NAME)" 
+              className="w-full bg-white/5 border border-white/10 p-5 mb-10 text-center text-2xl font-black rounded-2xl focus:border-cyan-500 outline-none transition-all placeholder:text-gray-800 uppercase tracking-widest italic"
+              value={name}
+              onChange={(e) => setName(e.target.value.toUpperCase())}
+            />
+
+            <div className="grid grid-cols-2 sm:grid-cols-3 gap-4 mb-10">
+              {CLASSES.map(c => (
+                <button 
+                  key={c}
+                  onClick={() => {
+                    audio.playAtk();
+                    setSelectedClass(c);
+                  }}
+                  className={`relative h-32 rounded-2xl border-2 transition-all overflow-hidden flex flex-col items-center justify-center gap-2 group ${selectedClass === c ? 'border-cyan-500 bg-cyan-950/20' : 'border-white/5 bg-white/5 grayscale hover:grayscale-0 opacity-40 hover:opacity-100'}`}
+                >
+                  <img src={portraits[c] || 'https://images.unsplash.com/photo-1626761191399-46764bbd9047?q=80&w=400&auto=format&fit=crop'} className="absolute inset-0 w-full h-full object-cover opacity-20 group-hover:opacity-40 transition-opacity" />
+                  <div className="relative z-10 flex flex-col items-center">
+                    <ClassIcon cls={c} size={32} className={selectedClass === c ? 'text-cyan-400' : 'text-gray-600'} />
+                    <span className={`text-[10px] font-black tracking-widest uppercase mt-2 ${selectedClass === c ? 'text-white' : 'text-gray-500'}`}>{c}</span>
+                  </div>
+                  {selectedClass === c && (
+                    <motion.div layoutId="selection" className="absolute inset-0 border-2 border-cyan-400 z-20 pointer-events-none" />
+                  )}
+                </button>
+              ))}
+            </div>
+
+            <button 
+              onClick={handleCreate}
+              disabled={!name}
+              className={`w-full py-6 rounded-2xl text-xl font-black italic tracking-widest uppercase transition-all relative overflow-hidden group/btn ${name ? 'bg-cyan-600 hover:bg-cyan-500 shadow-[0_0_40px_rgba(6,182,212,0.3)]' : 'bg-gray-900 border border-gray-800 text-gray-700 cursor-not-allowed'}`}
+            >
+              <div className="relative z-10 flex items-center justify-center gap-3">
+                BEGIN ASCENT <ChevronRight size={20} />
+              </div>
+              {name && <div className="absolute inset-0 bg-gradient-to-r from-transparent via-white/20 to-transparent translate-x-[-100%] group-hover/btn:translate-x-[100%] transition-transform duration-1000" />}
+            </button>
+          </div>
+
+          <div className="mt-8 flex justify-between px-4 text-[8px] font-mono text-gray-700 uppercase tracking-widest">
+            <span>Core: Standard Node</span>
+            <span>Auth: Firebase Secure</span>
+            <span>Region: Global_Ether</span>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
@@ -466,6 +508,50 @@ function Dashboard({ player, logs, logFilter, setLogFilter, claimDaily, unequip,
          <NavCard icon={<Hammer size={20} />} label="Forge" onClick={() => setView('blacksmith')} color="from-orange-900/20 to-transparent" />
       </div>
 
+      {/* Active Quest Tracker */}
+      <motion.div 
+        onClick={() => setView('quests')}
+        whileHover={{ scale: 1.02 }}
+        whileTap={{ scale: 0.98 }}
+        className="bg-[#0f0f1a] border border-yellow-900/30 rounded-2xl p-6 cursor-pointer group hover:border-yellow-500/50 transition-all shadow-lg"
+      >
+        <div className="flex justify-between items-center mb-4">
+           <div className="flex items-center gap-2">
+              <Trophy size={14} className="text-yellow-400 group-hover:animate-bounce" />
+              <h4 className="text-[10px] font-black text-gray-500 uppercase tracking-[0.2em]">Active System Quest</h4>
+           </div>
+           <ChevronRight size={14} className="text-gray-700 group-hover:text-yellow-500 transition-colors" />
+        </div>
+        {player.activeQuests && player.activeQuests.find((q: any) => !q.isCompleted) ? (
+          (() => {
+            const quest = player.activeQuests.find((q: any) => !q.isCompleted);
+            const progress = (quest.current / quest.target) * 100;
+            return (
+              <div className="space-y-3">
+                <div className="flex justify-between items-end">
+                   <div>
+                      <div className="text-sm font-black italic text-white group-hover:text-yellow-400 transition-colors">{quest.name}</div>
+                      <div className="text-[10px] text-gray-500 font-mono mt-0.5">{quest.description}</div>
+                   </div>
+                   <div className="text-right">
+                      <div className="text-[10px] font-black text-white">{Math.floor(progress)}%</div>
+                   </div>
+                </div>
+                <div className="h-1.5 bg-black rounded-full overflow-hidden border border-gray-800">
+                   <motion.div 
+                    initial={{ width: 0 }}
+                    animate={{ width: `${Math.min(100, progress)}%` }}
+                    className="h-full bg-gradient-to-r from-yellow-700 to-yellow-400 shadow-[0_0_10px_rgba(234,179,8,0.3)]"
+                   />
+                </div>
+              </div>
+            );
+          })()
+        ) : (
+          <p className="text-[10px] text-gray-600 font-black uppercase text-center py-2 italic tracking-widest">All System Objectives Synchronized</p>
+        )}
+      </motion.div>
+
       <div className="grid grid-cols-2 gap-4">
         {['STR', 'AGI', 'INT', 'VIT', 'DEX', 'LUK'].map(stat => (
            <motion.div 
@@ -485,12 +571,44 @@ function Dashboard({ player, logs, logFilter, setLogFilter, claimDaily, unequip,
                   color={stat === 'STR' ? 'text-red-400' : stat === 'AGI' ? 'text-cyan-400' : stat === 'INT' ? 'text-blue-400' : stat === 'VIT' ? 'text-green-400' : stat === 'DEX' ? 'text-yellow-400' : 'text-purple-400'} 
                 />
                 {player.attributePoints > 0 && (
-                  <button 
-                    onClick={() => allocateAttribute(stat)}
-                    className="absolute top-1 right-1 w-6 h-6 rounded-full bg-red-600 text-white font-black text-xs flex items-center justify-center hover:bg-red-500 shadow-lg z-10"
-                  >
-                    +
-                  </button>
+                  <div className="absolute -top-2 -right-2 flex flex-col gap-1 z-20">
+                    <div className="flex gap-1 justify-end">
+                      <button 
+                        onClick={() => allocateAttribute(stat as any, 1)}
+                        className="w-6 h-6 rounded-md bg-red-600 text-white font-black text-[8px] flex items-center justify-center hover:bg-red-500 shadow-xl border border-white/20"
+                      >
+                        +1
+                      </button>
+                      {player.attributePoints >= 10 && (
+                        <button 
+                          onClick={() => allocateAttribute(stat as any, 10)}
+                          className="w-7 h-6 rounded-md bg-orange-600 text-white font-black text-[8px] flex items-center justify-center hover:bg-orange-500 shadow-xl border border-white/20"
+                        >
+                          +10
+                        </button>
+                      )}
+                    </div>
+                    <div className="flex gap-1 justify-end">
+                      <button 
+                        onClick={() => {
+                          const val = window.prompt(`Points to add to ${stat}:`, player.attributePoints.toString());
+                          if (val) {
+                            const amount = parseInt(val);
+                            if (!isNaN(amount) && amount > 0) allocateAttribute(stat as any, amount);
+                          }
+                        }}
+                        className="w-6 h-6 rounded-md bg-blue-600 text-white font-black text-[8px] flex items-center justify-center hover:bg-blue-500 shadow-xl border border-white/20"
+                      >
+                        FIX
+                      </button>
+                      <button 
+                        onClick={() => allocateAttribute(stat as any, player.attributePoints)}
+                        className="px-1.5 h-6 rounded-md bg-purple-600 text-white font-black text-[8px] flex items-center justify-center hover:bg-purple-500 shadow-xl border border-white/20"
+                      >
+                        MAX
+                      </button>
+                    </div>
+                  </div>
                 )}
               </div>
               <AnimatePresence>
@@ -637,7 +755,7 @@ function Dungeon({ player, isAuto, toggleAuto, logs, ariseAvailable, onArise }: 
   );
 }
 
-function Inventory({ player, sortedInventory, setSortOrder, recycle, autoEquip, equipItem, discardItem, setView }: any) {
+function Inventory({ player, sortedInventory, setSortOrder, recycle, autoEquip, equipItem, discardItem, unequip, setView }: any) {
   const [selectedItem, setSelectedItem] = useState<any>(null);
 
   return (
@@ -648,8 +766,14 @@ function Inventory({ player, sortedInventory, setSortOrder, recycle, autoEquip, 
           <p className="text-[8px] text-cyan-500 font-bold uppercase tracking-widest animate-pulse">Millions of procedural variations possible</p>
         </div>
         <div className="flex gap-4">
-          <button onClick={autoEquip} className="flex items-center gap-2 text-xs font-black text-cyan-400 hover:text-cyan-300 uppercase tracking-tighter">
-            <Sword size={14} /> Auto Equip
+          <button 
+            onClick={() => {
+              audio.playLevelUp();
+              autoEquip();
+            }} 
+            className="flex items-center gap-2 text-[10px] font-black text-white hover:text-cyan-300 uppercase tracking-widest bg-cyan-600 hover:bg-cyan-500 px-4 py-2 rounded-full shadow-[0_0_15px_rgba(6,182,212,0.4)] transition-all active:scale-95"
+          >
+            <Sword size={14} /> Auto Equip Best
           </button>
           <div className="flex gap-2">
             <button onClick={() => recycle('Common')} className="w-6 h-6 rounded bg-gray-800 border border-gray-700 flex items-center justify-center text-[8px] font-black text-gray-500 hover:text-white" title="Recycle Common">C</button>
@@ -671,23 +795,34 @@ function Inventory({ player, sortedInventory, setSortOrder, recycle, autoEquip, 
       </div>
 
       <div className="grid grid-cols-4 gap-2 mb-8">
-         {Array.from({ length: 48 }).map((_, i) => {
-           const item = sortedInventory[i];
-           return (
-             <div 
-               key={i} 
-               onClick={() => setSelectedItem(item)}
-               className={`aspect-square rounded-lg border flex items-center justify-center relative overflow-hidden transition-all cursor-pointer ${item ? 'bg-[#151520] border-gray-700 hover:border-white' : 'bg-black/20 border-gray-800/30'}`}
-             >
+          {Array.from({ length: 48 }).map((_, i) => {
+            const item = sortedInventory[i];
+            return (
+              <motion.div 
+                key={i} 
+                whileHover={item ? { scale: 1.05, borderColor: '#fff' } : {}}
+                whileTap={item ? { scale: 0.95 } : {}}
+                onClick={() => {
+                  if (item) {
+                    audio.playPickup();
+                    equipItem(item);
+                    setSelectedItem(item);
+                  }
+                }}
+                className={`aspect-square rounded-lg border flex items-center justify-center relative overflow-hidden transition-all cursor-pointer ${item ? 'bg-[#151520] border-gray-700' : 'bg-black/20 border-gray-800/30'}`}
+              >
                 {item ? (
                   <>
                     <ItemIcon type={item.type} rarity={item.rarity} size={20} />
+                    <div className="absolute top-0 right-0 p-1">
+                       <div className={`w-1 h-1 rounded-full ${item.rarity === 'Mythical' ? 'bg-red-500 shadow-[0_0_5px_red]' : 'bg-transparent'}`} />
+                    </div>
                     <div className={`absolute bottom-0 w-full h-[2px] ${item.rarity === 'Mythical' ? 'bg-red-500' : 'bg-gray-500 opacity-20'}`} />
                   </>
                 ) : <span className="text-[10px] text-gray-900">{i + 1}</span>}
-             </div>
-           );
-         })}
+              </motion.div>
+            );
+          })}
       </div>
 
       <AnimatePresence>
@@ -710,7 +845,9 @@ function Inventory({ player, sortedInventory, setSortOrder, recycle, autoEquip, 
                </div>
                <div className="flex-1">
                   <div className={`text-xs font-black uppercase tracking-widest mb-1 ${RARITY_COLORS[selectedItem.rarity as keyof typeof RARITY_COLORS]}`}>{selectedItem.rarity}</div>
-                  <h4 className="text-2xl font-black italic leading-none mb-1">{selectedItem.name}</h4>
+                  <h4 className="text-2xl font-black italic leading-none mb-1">
+                    {selectedItem.name} {selectedItem.upgradeLevel > 0 && <span className="text-orange-500">+{selectedItem.upgradeLevel}</span>}
+                  </h4>
                   {selectedItem.setName && (
                     <div className="text-[10px] text-cyan-400 font-black uppercase tracking-widest mb-2 italic">Part of: {selectedItem.setName}</div>
                   )}
@@ -721,12 +858,21 @@ function Inventory({ player, sortedInventory, setSortOrder, recycle, autoEquip, 
                     <p className="text-gray-500 uppercase">Value: <span className="text-yellow-400 font-mono">{selectedItem.value.toLocaleString()} G</span></p>
                   </div>
                   <div className="flex gap-4 mt-6">
-                     <button 
-                       onClick={() => { equipItem(selectedItem); setSelectedItem(null); }}
-                       className="flex-1 bg-cyan-600 hover:bg-cyan-500 text-white font-black py-3 rounded-xl uppercase tracking-widest text-sm shadow-lg shadow-cyan-900/20"
-                     >
-                       Equip
-                     </button>
+                     {Object.values(player.equipped).some((i: any) => i?.id === selectedItem.id) ? (
+                       <button 
+                         onClick={() => { audio.playHit(); unequip(selectedItem.type); setSelectedItem(null); }}
+                         className="flex-1 bg-red-600 hover:bg-red-500 text-white font-black py-3 rounded-xl uppercase tracking-widest text-sm shadow-lg shadow-red-900/20"
+                       >
+                         Unequip
+                       </button>
+                     ) : (
+                       <button 
+                         onClick={() => { audio.playPickup(); equipItem(selectedItem); setSelectedItem(null); }}
+                         className="flex-1 bg-cyan-600 hover:bg-cyan-500 text-white font-black py-3 rounded-xl uppercase tracking-widest text-sm shadow-lg shadow-cyan-900/20"
+                       >
+                         Equip
+                       </button>
+                     )}
                      <button 
                        onClick={() => { setView('blacksmith'); setSelectedItem(null); }}
                        className="flex-1 bg-orange-600 hover:bg-orange-500 text-white font-black py-3 rounded-xl uppercase tracking-widest text-sm"
@@ -749,16 +895,24 @@ function Inventory({ player, sortedInventory, setSortOrder, recycle, autoEquip, 
       <div className="space-y-3">
         <h4 className="text-[10px] font-black text-gray-600 uppercase tracking-widest">Active Equipment</h4>
         {SLOTS.map(slot => (
-          <EquipSlot key={slot} slot={slot} item={player.equipped[slot]} />
+          <EquipSlot 
+            key={slot} 
+            slot={slot} 
+            item={player.equipped[slot]} 
+            onSelect={setSelectedItem}
+          />
         ))}
       </div>
     </motion.div>
   );
 }
 
-function EquipSlot({ slot, item }: any) {
+function EquipSlot({ slot, item, onSelect }: any) {
   return (
-    <div className="flex items-center justify-between bg-[#0f0f1a] border border-gray-800 p-3 rounded-xl shadow-sm hover:border-gray-700 transition-all">
+    <div 
+      onClick={() => item && onSelect(item)}
+      className={`flex items-center justify-between bg-[#0f0f1a] border border-gray-800 p-3 rounded-xl shadow-sm hover:border-gray-700 transition-all ${item ? 'cursor-pointer active:scale-[0.98]' : ''}`}
+    >
       <div className="flex items-center gap-3">
         <div className="w-10 h-10 bg-black rounded-lg border border-gray-800 flex items-center justify-center text-gray-500">
            <ItemIcon type={slot} size={20} />
@@ -766,7 +920,7 @@ function EquipSlot({ slot, item }: any) {
         <div>
           <div className="text-[10px] font-black text-gray-600 uppercase tracking-tighter">{slot}</div>
           <div className={`text-xs font-bold ${item ? RARITY_COLORS[item.rarity as keyof typeof RARITY_COLORS] : 'text-gray-400 opacity-20 italic'}`}>
-            {item ? item.name : 'EMPTY SLOT'}
+            {item ? `${item.name} ${item.upgradeLevel > 0 ? `+${item.upgradeLevel}` : ''}` : 'EMPTY SLOT'}
           </div>
         </div>
       </div>
@@ -775,9 +929,17 @@ function EquipSlot({ slot, item }: any) {
   );
 }
 
-function Quests({ player }: { player: any }) {
+function Quests({ player, setView }: { player: any, setView: (v: any) => void }) {
   return (
-    <QuestList quests={player.activeQuests} />
+    <QuestList 
+      quests={player.activeQuests} 
+      onQuestClick={(quest) => {
+        if (!quest.isCompleted) {
+          // Most quests are related to dungeon or killing mobs
+          setView('dungeon');
+        }
+      }}
+    />
   );
 }
 
@@ -788,7 +950,7 @@ function Blacksmith({ player, upgrade }: any) {
          <div className="absolute inset-0 bg-[radial-gradient(circle_at_center,_var(--tw-gradient-stops))] from-orange-600/10 via-transparent to-transparent opacity-50" />
          <Hammer size={64} className="mx-auto mb-4 text-gray-700 group-hover:text-orange-500 transition-colors" />
          <h4 className="text-xl font-black italic mb-2">ANCIENT FORGE</h4>
-         <p className="text-xs text-gray-500 uppercase tracking-widest">Mastery up to Level 500</p>
+         <p className="text-xs text-gray-500 uppercase tracking-widest">Mastery up to Upgrade Level 500</p>
       </div>
 
       <div className="space-y-3">
@@ -801,17 +963,19 @@ function Blacksmith({ player, upgrade }: any) {
                         <ItemIcon type={slot} size={24} rarity={player.equipped[slot]!.rarity} />
                      </div>
                      <div>
-                        <div className={`text-xs font-black uppercase tracking-widest ${RARITY_COLORS[player.equipped[slot]!.rarity as keyof typeof RARITY_COLORS]}`}>{player.equipped[slot]!.name}</div>
+                        <div className={`text-xs font-black uppercase tracking-widest ${RARITY_COLORS[player.equipped[slot]!.rarity as keyof typeof RARITY_COLORS]}`}>
+                          {player.equipped[slot]!.name} {player.equipped[slot]!.upgradeLevel > 0 ? `+${player.equipped[slot]!.upgradeLevel}` : ''}
+                        </div>
                         <div className="flex items-center gap-2">
-                           <span className="text-sm font-black text-orange-500">LVL {player.equipped[slot]!.level}</span>
+                           <span className="text-sm font-black text-orange-500">+{player.equipped[slot]!.upgradeLevel}</span>
                            <ChevronRight size={12} className="text-gray-700" />
-                           <span className="text-sm font-black text-green-500">LVL {player.equipped[slot]!.level + 1}</span>
+                           <span className="text-sm font-black text-green-500">+{player.equipped[slot]!.upgradeLevel + 1}</span>
                         </div>
                      </div>
                   </div>
                   <div className="text-right">
                      <div className="text-[10px] font-black text-gray-600 uppercase">Success Rate</div>
-                     <div className="text-sm font-bold text-cyan-400">{Math.max(5, 100 - ((player.equipped[slot]!.level % 100) * 5))}%</div>
+                     <div className="text-sm font-bold text-cyan-400">70%</div>
                   </div>
                </div>
                
@@ -820,11 +984,12 @@ function Blacksmith({ player, upgrade }: any) {
                   audio.playAtk();
                   upgrade(slot);
                 }}
-                className="w-full bg-orange-600 hover:bg-orange-500 text-white font-black py-3 rounded-lg text-xs flex justify-between px-6 items-center shadow-lg active:scale-95 transition-all"
+                className="w-full bg-orange-600 hover:bg-orange-500 text-white font-black py-3 rounded-lg text-xs flex justify-between px-6 items-center shadow-lg active:scale-95 transition-all disabled:opacity-50"
+                disabled={player.equipped[slot]!.upgradeLevel >= 500}
                >
-                 <span>UPGRADE FORGE</span>
+                 <span>{player.equipped[slot]!.upgradeLevel >= 500 ? 'MAX LEVEL REACHED' : 'UPGRADE FORGE'}</span>
                  <span className="flex items-center gap-1 font-mono">
-                    <Coins size={12} /> {Math.floor(((player.equipped[slot]!.level % 100) + 1) * 10000).toLocaleString()}
+                    <Coins size={12} /> {(50000 + (player.equipped[slot]!.upgradeLevel * 10000)).toLocaleString()}
                  </span>
                </button>
             </div>
@@ -1093,13 +1258,32 @@ function StatCard({ label, value, icon, color }: any) {
 
 function ClassIcon({ cls, size, className }: any) {
   switch(cls) {
-    case 'Warrior': return <Sword size={size} className={className + " text-orange-400"} />;
-    case 'Paladin': return <Shield size={size} className={className + " text-yellow-500"} />;
-    case 'Assassin': return <Ghost size={size} className={className + " text-indigo-400"} />;
-    case 'Mage': return <Flame size={size} className={className + " text-cyan-400"} />;
-    case 'Archer': return <Target size={size} className={className + " text-green-400"} />;
-    case 'Berserker': return <Zap size={size} className={className + " text-red-500 animate-pulse"} />;
-    case 'Necromancer': return <Brain size={size} className={className + " text-purple-600"} />;
+    case 'Warrior': case 'Flame Knight': case 'Dragon Slayer': case 'Blood Samurai': case 'Slayer':
+      return <Sword size={size} className={className + " text-orange-400"} />;
+    case 'Paladin': case 'Holy Paladin': case 'Titan Guardian': case 'Holy Knight':
+      return <Shield size={size} className={className + " text-yellow-500"} />;
+    case 'Assassin': case 'Shadow Assassin': case 'Cyber Ninja': case 'Void Reaper': case 'Phantom': case 'Dual Blader':
+      return <Ghost size={size} className={className + " text-indigo-400"} />;
+    case 'Mage': case 'Arcane Wizard': case 'Phoenix Queen': case 'Storm Caller':
+      return <Flame size={size} className={className + " text-cyan-400"} />;
+    case 'Archer': case 'Wind Ranger': case 'Poison Hunter': case 'Ranger':
+      return <Target size={size} className={className + " text-green-400"} />;
+    case 'Berserker': case 'Demon Berserker': 
+      return <Zap size={size} className={className + " text-red-500 animate-pulse"} />;
+    case 'Necromancer': case 'Dark Necromancer': case 'Soul Eater':
+      return <Brain size={size} className={className + " text-purple-600"} />;
+    case 'Priest': case 'Celestial Angel': case 'Dark Priest':
+      return <Heart size={size} className={className + " text-pink-400"} />;
+    case 'Gunner': case 'Mecha Soldier': 
+      return <Hammer size={size} className={className + " text-gray-400"} />;
+    case 'Monk': case 'Storm Monk': 
+      return <Zap size={size} className={className + " text-blue-400"} />;
+    case 'Shadow Monarch': 
+      return <Crown size={size} className={className + " text-purple-500"} />;
+    case 'Dragon Knight':
+      return <Shield size={size} className={className + " text-emerald-500"} />;
+    case 'Void Walker':
+      return <CircleDot size={size} className={className + " text-violet-400"} />;
     default: return <User size={size} className={className} />;
   }
 }
@@ -1158,6 +1342,129 @@ function GateSelection({ player, onSelect }: any) {
           );
         })}
       </div>
+    </div>
+  );
+}
+
+function LandingPage({ login, onStart }: { login: () => void, onStart: () => void }) {
+  return (
+    <div className="min-h-screen bg-[#050508] flex flex-col items-center justify-center p-8 font-mono relative overflow-hidden">
+      {/* High-Tech Grid & Scanlines */}
+      <div className="absolute inset-0 pointer-events-none opacity-20 z-0">
+        <div className="absolute inset-0 bg-[url('https://www.transparenttextures.com/patterns/carbon-fibre.png')] scale-150" />
+        <div className="absolute inset-0 bg-[linear-gradient(rgba(18,16,16,0)_50%,rgba(0,0,0,0.25)_50%),linear-gradient(90deg,rgba(255,0,0,0.06),rgba(0,255,0,0.02),rgba(0,0,255,0.06))] bg-[length:100%_2px,3px_100%] pointer-events-none" />
+      </div>
+      <div className="absolute inset-0 bg-gradient-to-t from-black via-black/80 to-transparent z-[1]" />
+      
+      <motion.div 
+        initial={{ opacity: 0, y: 30 }}
+        animate={{ opacity: 1, y: 0 }}
+        className="text-center z-10"
+      >
+        <div className="bg-black/40 backdrop-blur-2xl border border-white/5 p-8 md:p-16 rounded-[4rem] shadow-[0_0_100px_rgba(0,0,0,0.8)] relative overflow-hidden group">
+          <div className="absolute top-0 left-0 w-full h-[2px] bg-gradient-to-r from-transparent via-cyan-500 to-transparent animate-pulse" />
+          
+          <motion.div
+            animate={{ y: [0, -4, 0] }}
+            transition={{ type: "tween", duration: 6, repeat: Infinity, ease: "easeInOut" }}
+          >
+            <h1 className="text-7xl md:text-8xl font-black text-white italic tracking-tighter mb-2 drop-shadow-[0_0_30px_rgba(255,255,255,0.2)]">SOLO PLAYER</h1>
+            <h2 className="text-2xl font-black text-cyan-500 mb-20 tracking-[0.6em] uppercase italic opacity-80">Eternal Ascent</h2>
+          </motion.div>
+          
+          <div className="flex flex-col gap-6 items-center">
+            <button
+              onClick={login}
+              className="group/btn relative flex items-center gap-4 bg-white text-black font-black px-12 py-6 rounded-2xl hover:bg-cyan-50 transition-all shadow-[0_0_40px_rgba(255,255,255,0.2)] hover:scale-105 active:scale-95"
+            >
+              <Diamond size={28} className="text-cyan-600 animate-bounce" />
+              SIGN IN WITH GOOGLE
+              <div className="absolute inset-0 border-2 border-white rounded-2xl group-hover/btn:scale-110 opacity-0 group-hover/btn:opacity-100 transition-all duration-300" />
+            </button>
+            
+            <button
+              onClick={onStart}
+              className="text-gray-600 hover:text-cyan-400 transition-colors uppercase tracking-[0.4em] text-[11px] py-4 font-black group-hover:opacity-100"
+            >
+              [ CONTINUE AS GUEST // LOCAL_MEM_SYNC ]
+            </button>
+          </div>
+        </div>
+        
+        <div className="mt-24 flex gap-16 justify-center opacity-20">
+           <div className="flex flex-col items-center gap-3">
+              <Shield size={28} className="text-gray-400" />
+              <span className="text-[10px] uppercase font-bold tracking-[0.5em] text-gray-500 whitespace-nowrap">Secure.Protocol</span>
+           </div>
+           <div className="flex flex-col items-center gap-3">
+              <Zap size={28} className="text-gray-400" />
+              <span className="text-[10px] uppercase font-bold tracking-[0.5em] text-gray-500 whitespace-nowrap">Instant.Load</span>
+           </div>
+           <div className="flex flex-col items-center gap-3">
+              <Database size={28} className="text-gray-400" />
+              <span className="text-[10px] uppercase font-bold tracking-[0.5em] text-gray-500 whitespace-nowrap">Grid.Persistent</span>
+           </div>
+        </div>
+      </motion.div>
+    </div>
+  );
+}
+
+function EntryScreen({ player, user, login, logout, onStart }: any) {
+  return (
+    <div className="min-h-screen bg-[#050508] flex flex-col items-center justify-center p-8 font-mono relative overflow-hidden">
+      <div className="absolute inset-0 bg-[url('https://images.unsplash.com/photo-1614850523296-d8c1af93d400?q=80&w=2000&auto=format&fit=crop')] bg-cover bg-center opacity-5" />
+      <div className="absolute inset-0 bg-gradient-to-t from-black via-black/80 to-transparent" />
+      
+      <motion.div 
+        initial={{ opacity: 0, scale: 0.9 }}
+        animate={{ opacity: 1, scale: 1 }}
+        className="text-center z-10 w-full max-w-md"
+      >
+        <div className="mb-14">
+          {user ? (
+            <div className="bg-white/5 backdrop-blur-xl border border-white/10 p-6 rounded-[2.5rem] flex flex-col items-center gap-4 relative overflow-hidden shadow-2xl">
+              <div className="absolute top-0 left-0 w-full h-[1px] bg-cyan-500/50" />
+              <div className="w-24 h-24 rounded-3xl border-2 border-cyan-500 p-1 bg-black overflow-hidden shadow-[0_0_30px_rgba(6,182,212,0.3)]">
+                <img src={user.photoURL || 'https://api.dicebear.com/7.x/avataaars/svg?seed=Felix'} className="rounded-2xl w-full h-full object-cover" />
+              </div>
+              <div className="flex flex-col items-center">
+                 <span className="text-sm text-cyan-400 font-black uppercase tracking-[0.4em] italic">{user.displayName}</span>
+                 <button onClick={logout} className="text-[10px] text-gray-600 hover:text-red-500 uppercase font-black tracking-[0.2em] mt-2 hover:underline">Revoke Identity</button>
+              </div>
+            </div>
+          ) : (
+            <button onClick={login} className="text-xs text-cyan-500 font-extrabold uppercase tracking-[0.5em] border border-cyan-500/30 px-10 py-4 rounded-2xl hover:bg-cyan-500/10 backdrop-blur-md transition-all shadow-[0_0_20px_rgba(6,182,212,0.1)]">ESTABLISH NEURAL LINK</button>
+          )}
+        </div>
+
+        <motion.div
+           animate={{ y: [0, -6, 0] }}
+           transition={{ type: "tween", duration: 5, repeat: Infinity, ease: "easeInOut" }}
+           className="mb-20"
+        >
+          <h1 className="text-6xl font-black text-white italic tracking-tighter mb-3 drop-shadow-[0_0_20px_rgba(255,255,255,0.2)]">CORE RESTORED</h1>
+          <h2 className="text-3xl font-black text-red-600 tracking-[0.3em] uppercase italic drop-shadow-[0_0_20px_rgba(220,38,38,0.4)]">{player.name}</h2>
+        </motion.div>
+        
+        <button
+          onClick={onStart}
+          className="w-full relative group"
+        >
+          <div className="absolute inset-0 bg-cyan-600/20 rounded-[2rem] blur-3xl group-hover:bg-cyan-600/40 transition-all duration-500" />
+          <div className="relative z-10 text-white font-black tracking-[0.6em] text-2xl uppercase px-12 py-8 border border-white/10 rounded-[2rem] bg-cyan-950/20 backdrop-blur-2xl hover:bg-cyan-600 transition-all shadow-[0_20px_50px_rgba(0,0,0,0.5)] flex items-center justify-center gap-6 group-hover:scale-105 active:scale-95">
+            INITIATE ASCENT <ChevronRight size={28} className="group-hover:translate-x-2 transition-transform" />
+          </div>
+        </button>
+
+        <div className="mt-20 bg-white/5 border border-white/5 px-8 py-4 rounded-3xl inline-block backdrop-blur-md">
+           <div className="text-[11px] text-gray-500 font-black uppercase tracking-[0.5em] flex items-center gap-4">
+             <span className="text-cyan-500">SEC {player.dungeonLevel}</span>
+             <span className="w-1 h-1 bg-gray-700 rounded-full" />
+             <span className="text-red-500">RANK {Math.floor(player.level / 100) + 1}</span>
+           </div>
+        </div>
+      </motion.div>
     </div>
   );
 }

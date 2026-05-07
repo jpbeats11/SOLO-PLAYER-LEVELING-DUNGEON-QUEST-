@@ -6,9 +6,10 @@ import { audio } from '../services/audioService';
 
 interface QuestListProps {
   quests: Quest[];
+  onQuestClick?: (quest: Quest) => void;
 }
 
-export const QuestList: React.FC<QuestListProps> = ({ quests = [] }) => {
+export const QuestList: React.FC<QuestListProps> = ({ quests = [], onQuestClick }) => {
   return (
     <div className="space-y-3">
       <div className="flex items-center gap-2 mb-4">
@@ -23,7 +24,10 @@ export const QuestList: React.FC<QuestListProps> = ({ quests = [] }) => {
           animate={{ opacity: 1, x: 0 }}
           whileHover={{ scale: 1.02 }}
           whileTap={{ scale: 0.98 }}
-          onClick={() => audio.playAtk()}
+          onClick={() => {
+            audio.playAtk();
+            if (onQuestClick) onQuestClick(quest);
+          }}
           className={`relative group overflow-hidden bg-gray-900/40 border cursor-pointer ${quest.isCompleted ? 'border-green-500/50' : 'border-gray-800'} rounded-xl p-4 transition-all hover:bg-gray-800/60 shadow-lg hover:shadow-cyan-900/10`}
         >
           {quest.isCompleted && (

@@ -1,12 +1,27 @@
 export type ClassType = 
-  'Warrior' | 'Paladin' | 'Assassin' | 'Mage' | 'Archer' | 
-  'Berserker' | 'Priest' | 'Necromancer' | 'Gunner' | 'Monk' |
-  'Shadow Monarch' | 'Dragon Knight' | 'Slayer' | 'Soul Eater' | 'Void Walker' | 
-  'Storm Caller' | 'Holy Knight' | 'Phantom' | 'Grand Master' | 'Dual Blader';
+  | 'Warrior' | 'Shadow Monarch' | 'Mage' | 'Dragon Knight' | 'Archer' 
+  | 'Berserker' | 'Priest' | 'Necromancer' | 'Gunner' | 'Monk'
+  | 'Assassin' | 'Paladin'
+  | 'Flame Knight' | 'Shadow Assassin' | 'Ice Mage' | 'Thunder Warrior' | 'Holy Paladin'
+  | 'Dark Necromancer' | 'Dragon Slayer' | 'Wind Ranger' | 'Blood Samurai' | 'Arcane Wizard'
+  | 'Cyber Ninja' | 'Titan Guardian' | 'Poison Hunter' | 'Phoenix Queen' | 'Storm Monk'
+  | 'Beast Tamer' | 'Demon Berserker' | 'Celestial Angel' | 'Void Reaper' | 'Mecha Soldier';
 
 export type Rarity = 'Common' | 'Uncommon' | 'Rare' | 'Unique' | 'Epic' | 'Legendary' | 'Ancient' | 'Divine' | 'Relic' | 'Mythical';
 
-export type Element = 'Fire' | 'Water' | 'Electric' | 'Earth' | 'Wind' | 'Light' | 'Dark' | 'Poison' | 'Ice' | 'Spirit' | 'Void' | 'Holy' | 'Chaos' | 'Gravity' | 'Blood';
+export type MonsterRank = 'Common Mob' | 'Elite Scout' | 'Veteran Guard' | 'Floor Boss' | 'World Boss';
+
+export type Element = 
+  | 'Fire' | 'Ice' | 'Water' | 'Wind' | 'Earth' 
+  | 'Lightning' | 'Light' | 'Dark' | 'Poison' | 'Blood'
+  | 'Spirit' | 'Metal' | 'Nature' | 'Shadow' | 'Holy'
+  | 'Lava' | 'Crystal' | 'Storm' | 'Void' | 'Arcane'
+  | 'Gravity' | 'Time' | 'Space' | 'Plasma' | 'Smoke'
+  | 'Sand' | 'Explosion' | 'Frost' | 'Venom' | 'Steel'
+  | 'Dragon' | 'Ghost' | 'Moon' | 'Sun' | 'Star'
+  | 'Chaos' | 'Magic' | 'Beast' | 'Thunder' | 'Inferno'
+  | 'Toxic' | 'Curse' | 'Dream' | 'Nightmare' | 'Soul'
+  | 'Divine' | 'Celestial' | 'Cyber' | 'Nuclear' | 'Galaxy';
 
 export type Slot = 'Weapon' | 'Headgear' | 'Suit' | 'Pants' | 'Shoes' | 'Gloves' | 'Necklace' | 'Earrings' | 'Ring' | 'Bracelet';
 
@@ -62,6 +77,7 @@ export interface GameItem {
   rarity: Rarity;
   element: Element;
   level: number;
+  upgradeLevel: number;
   statBonus: number;
   value: number;
   setName?: string;
@@ -113,4 +129,25 @@ export interface PlayerData {
   currentGateId: number;
   shopInventory: GameItem[];
   lastShopRefresh: number;
+}
+
+export interface Monster {
+  id: string;
+  name: string;
+  rank: MonsterRank;
+  biome: string;
+  level: number;
+  hp: number;
+  maxHp: number;
+  atk: number;
+  def: number;
+  element: string;
+  visualPrompt: string;
+  lootDrop: string;
+  x: number;
+  y: number;
+  spawnX: number;
+  spawnY: number;
+  facing: 'left' | 'right';
+  isBoss?: boolean;
 }

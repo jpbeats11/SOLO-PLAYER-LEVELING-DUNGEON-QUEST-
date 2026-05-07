@@ -2,9 +2,50 @@ import { useState, useCallback, useEffect, useMemo } from 'react';
 import { PlayerData, ClassType, GameItem, Rarity, Element, Slot, Stats, SortOption, Skill, Quest, SetBonus } from './types';
 import { 
   CLASS_GROWTH, CLASS_SKILLS, RARITIES, ELEMENTS, 
-  SLOTS, RARITY_WEIGHTS, CLASSES, SETS, ELEMENTAL_ADVANTAGES 
+  SLOTS, RARITY_WEIGHTS, CLASSES, SETS, ELEMENTAL_ADVANTAGES, RARITY_MULTIPLIERS
 } from './constants';
 import { audio } from './services/audioService';
+import { getMonster } from './services/monsterService';
+import { auth, db } from './services/firebase';
+import { onAuthStateChanged, GoogleAuthProvider, signInWithPopup, signOut, User } from 'firebase/auth';
+import { doc, getDoc, setDoc, onSnapshot, serverTimestamp } from 'firebase/firestore';
+
+enum OperationType {
+  CREATE = 'create',
+  UPDATE = 'update',
+  DELETE = 'delete',
+  LIST = 'list',
+  GET = 'get',
+  WRITE = 'write',
+}
+
+interface FirestoreErrorInfo {
+  error: string;
+  operationType: OperationType;
+  path: string | null;
+  authInfo: {
+    userId?: string | null;
+    email?: string | null;
+    emailVerified?: boolean | null;
+    isAnonymous?: boolean | null;
+  }
+}
+
+function handleFirestoreError(error: unknown, operationType: OperationType, path: string | null) {
+  const errInfo: FirestoreErrorInfo = {
+    error: error instanceof Error ? error.message : String(error),
+    authInfo: {
+      userId: auth.currentUser?.uid,
+      email: auth.currentUser?.email,
+      emailVerified: auth.currentUser?.emailVerified,
+      isAnonymous: auth.currentUser?.isAnonymous,
+    },
+    operationType,
+    path
+  };
+  console.error('Firestore Error: ', JSON.stringify(errInfo));
+  throw new Error(JSON.stringify(errInfo));
+}
 
 const INITIAL_WEALTH = 999999999999;
 
@@ -17,53 +58,129 @@ const QUEST_POOL = [
 ];
 
 export function useGameState() {
-  const [player, setPlayer] = useState<PlayerData | null>(() => {
-    try {
+  const [user, setUser] = useState<User | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [player, setPlayer] = useState<PlayerData | null>(null);
+
+  // Auth Listener
+  useEffect(() => {
+    return onAuthStateChanged(auth, (u) => {
+      setUser(u);
+      setLoading(false);
+    });
+  }, []);
+
+  // Firestore Sync Listener
+  useEffect(() => {
+    if (!user) {
+      // Offline mode or not logged in - check localStorage for guest play
       const saved = localStorage.getItem('player_save');
-      if (!saved) return null;
-      const parsed = JSON.parse(saved);
-      if (!parsed.name || !parsed.stats || !parsed.equipped) {
-        localStorage.removeItem('player_save');
-        return null;
+      if (saved) {
+        try {
+          const data = JSON.parse(saved);
+          if (!data.activeQuests) {
+            data.activeQuests = QUEST_POOL.map((q: any) => ({
+              ...q, id: Math.random().toString(36).substr(2, 9), current: 0, isCompleted: false
+            }));
+          }
+          setPlayer(data);
+        } catch (e) {
+          console.error("Error parsing local save", e);
+        }
+      } else {
+        setPlayer(null);
       }
-      
-      // Migration
-      const level = parsed.level || 1;
-      
-      if (!parsed.skills || !Array.isArray(parsed.skills)) {
-        parsed.skills = (CLASS_SKILLS[parsed.class] || []).map((s: any) => ({
-          ...s,
-          id: Math.random().toString(36).substr(2, 9),
-          level: 1,
-          maxLevel: 10,
-          requiredLevel: 1,
-          lastUsed: 0
-        }));
-        parsed.skillPoints = Math.floor(level / 2);
-      }
-      
-      if (!parsed.activeQuests || !Array.isArray(parsed.activeQuests)) {
-        parsed.activeQuests = QUEST_POOL.filter(q => q.levelReq <= level).map(q => ({
-          ...q, id: Math.random().toString(36).substr(2, 9), current: 0, isCompleted: false
-        }));
-      }
-
-      if (parseFloat(parsed.gold) < 5000000 || parsed.gold === undefined) parsed.gold = 5000000;
-      if (parseFloat(parsed.gems) < 100000 || parsed.gems === undefined) parsed.gems = 100000;
-      if (!parsed.inventory) parsed.inventory = [];
-      if (!parsed.equipped) parsed.equipped = {};
-      
-      if (!parsed.unlockedGates) parsed.unlockedGates = [1];
-      if (!parsed.currentGateId) parsed.currentGateId = 1;
-
-      if (!parsed.attributePoints) parsed.attributePoints = 0;
-
-      return parsed;
-    } catch (e) {
-      localStorage.removeItem('player_save');
-      return null;
+      return;
     }
-  });
+
+    const userDocRef = doc(db, 'users', user.uid);
+    const unsubscribe = onSnapshot(userDocRef, (docSnap) => {
+      if (docSnap.exists()) {
+        const data = docSnap.data() as PlayerData;
+        // Migration: Ensure activeQuests exists
+        if (!data.activeQuests) {
+          data.activeQuests = QUEST_POOL.map(q => ({
+            ...q, id: Math.random().toString(36).substr(2, 9), current: 0, isCompleted: false
+          }));
+        }
+        setPlayer(data);
+      } else {
+        // Check if we can migrate from localStorage
+        const saved = localStorage.getItem('player_save');
+        if (saved) {
+          try {
+            const localData = JSON.parse(saved);
+            // Migrate to Firestore
+            setDoc(userDocRef, {
+              ...localData,
+              createdAt: serverTimestamp(),
+              updatedAt: serverTimestamp()
+            }).catch(e => handleFirestoreError(e, OperationType.WRITE, `users/${user.uid}`));
+            setPlayer(localData);
+          } catch (e) {
+            setPlayer(null);
+          }
+        } else {
+          setPlayer(null);
+        }
+      }
+    }, (error) => {
+      handleFirestoreError(error, OperationType.GET, `users/${user.uid}`);
+    });
+
+    return () => unsubscribe();
+  }, [user]);
+
+  // Persist local state (for guests) OR sync to Firestore (for users)
+  // Actually, with onSnapshot, we only need to write WHEN state changes locally (if we don't do optimistic UI, but here we are using local state setters)
+  // To avoid circular loops with onSnapshot, we should ideally write to Firestore in our action handlers instead of a global useEffect
+  
+  const saveGameState = useCallback(async (newData: PlayerData | null) => {
+    if (!newData) return;
+    
+    // Always update local storage for redundancy/guest mode
+    localStorage.setItem('player_save', JSON.stringify(newData));
+
+    if (user) {
+      try {
+        const userDocRef = doc(db, 'users', user.uid);
+        await setDoc(userDocRef, {
+          ...newData,
+          updatedAt: serverTimestamp()
+        }, { merge: true });
+      } catch (e) {
+        handleFirestoreError(e, OperationType.WRITE, `users/${user.uid}`);
+      }
+    }
+  }, [user]);
+
+  // We'll wrap setPlayer to also save
+  const updatePlayer = useCallback((updater: (prev: PlayerData | null) => PlayerData | null) => {
+    setPlayer(prev => {
+      const next = updater(prev);
+      saveGameState(next);
+      return next;
+    });
+  }, [saveGameState]);
+
+  const login = async () => {
+    const provider = new GoogleAuthProvider();
+    try {
+      await signInWithPopup(auth, provider);
+    } catch (e) {
+      console.error("Login Error", e);
+    }
+  };
+
+  const logout = async () => {
+    try {
+      await signOut(auth);
+      localStorage.removeItem('player_save');
+      setPlayer(null);
+    } catch (e) {
+      console.error("Logout Error", e);
+    }
+  };
 
   const [battleLog, setBattleLog] = useState<string[]>([]);
   const [isAutoBattle, setIsAutoBattle] = useState(false);
@@ -71,7 +188,7 @@ export function useGameState() {
   const [hasStarted, setHasStarted] = useState(false);
 
   const claimDailyReward = useCallback(() => {
-    setPlayer(prev => {
+    updatePlayer(prev => {
       if (!prev) return null;
       const now = Date.now();
       const last = prev.lastDailyReward || 0;
@@ -90,10 +207,10 @@ export function useGameState() {
         lastDailyReward: now 
       };
     });
-  }, []);
+  }, [updatePlayer]);
 
   const switchGate = useCallback((gateId: string) => {
-    setPlayer(prev => {
+    updatePlayer(prev => {
       if (!prev) return null;
       const gateConfigs: Record<string, number> = { 'E': 1, 'D': 50, 'C': 100, 'B': 200, 'A': 400, 'S': 600, 'M': 800, 'V': 1000 };
       const levelReq = gateConfigs[gateId] || 1;
@@ -104,11 +221,7 @@ export function useGameState() {
       setBattleLog(logs => [`🌌 Warping to ${gateId}-Rank Gate...`, ...logs]);
       return { ...prev, currentGateId: gateId, dungeonLevel: 1 };
     });
-  }, []);
-
-  useEffect(() => {
-    if (player) localStorage.setItem('player_save', JSON.stringify(player));
-  }, [player]);
+  }, [updatePlayer]);
 
   const [floorModifier, setFloorModifier] = useState<{ name: string, effect: string, icon: string } | null>(null);
 
@@ -136,15 +249,13 @@ export function useGameState() {
 
     const type = SLOTS[Math.floor(Math.random() * SLOTS.length)];
     const element = ELEMENTS[Math.floor(Math.random() * ELEMENTS.length)];
-    const rarityIndex = RARITIES.indexOf(rarity);
-    const rarityMultiplier = (rarityIndex + 1) * 2;
+    const rarityMultiplier = RARITY_MULTIPLIERS[rarity as string] || 1;
     
-    // Million variation procedural generation: Base * Level * RandomNoise * Rarity
-    const noise = Math.random() * 0.5 + 0.5; // 0.5 to 1
-    const baseStat = (dungeonLevel * 15) + (Math.random() * 100);
-    const statBonus = Math.round(baseStat * rarityMultiplier * noise);
+    // Logic from script: statBonus = monsterLevel * Random.Range(10, 50) * rarityMultiplier
+    const rangeVal = Math.floor(Math.random() * 41) + 10; // 10 to 50
+    const statBonus = Math.round(dungeonLevel * rangeVal * rarityMultiplier);
 
-    const isSet = (rarityIndex >= 4) && Math.random() < 0.25;
+    const isSet = (rarityMultiplier >= 10) && Math.random() < 0.25;
     const itemSet = isSet ? SETS[Math.floor(Math.random() * SETS.length)] : null;
 
     return {
@@ -154,6 +265,7 @@ export function useGameState() {
       rarity,
       element,
       level: dungeonLevel,
+      upgradeLevel: 0,
       statBonus,
       value: dungeonLevel * 200,
       setName: itemSet?.name
@@ -167,12 +279,12 @@ export function useGameState() {
 
   useEffect(() => {
     if (player && (!player.shopInventory || !player.lastShopRefresh || Date.now() - player.lastShopRefresh > 3600000)) {
-       setPlayer(p => p ? refreshShop(p) : null);
+       updatePlayer(p => p ? refreshShop(p) : null);
     }
-  }, [player?.lastShopRefresh, refreshShop]);
+  }, [player?.lastShopRefresh, refreshShop, updatePlayer]);
 
   const buySpecificItem = useCallback((item: GameItem) => {
-    setPlayer(prev => {
+    updatePlayer(prev => {
       if (!prev || prev.gold < item.value * 5) {
         setBattleLog(logs => [`❌ Not enough gold to buy ${item.name}!`, ...logs]);
         return prev;
@@ -183,7 +295,7 @@ export function useGameState() {
       setBattleLog(logs => [`🛒 Purchased ${item.name} for ${item.value * 5} Gold!`, ...logs]);
       return { ...prev, gold: prev.gold - item.value * 5, inventory: updatedInventory, shopInventory: updatedShop };
     });
-  }, []);
+  }, [updatePlayer]);
 
   const autoEquip = useCallback((p: PlayerData): PlayerData => {
     const updatedEquipped = { ...p.equipped };
@@ -233,8 +345,8 @@ export function useGameState() {
     });
 
     effective.ATK += (effective.STR * 5);
-    effective.MAX_HP = 500 + (effective.VIT * 20);
-    effective.MAX_MP = 200 + (effective.INT * 15);
+    effective.MAX_HP = 1000 + (effective.VIT * 20) + (p.level * 100);
+    effective.MAX_MP = 500 + (effective.INT * 15) + (p.level * 50);
     effective.HP = Math.min(p.stats.HP, effective.MAX_HP);
     effective.MP = Math.min(p.stats.MP, effective.MAX_MP);
 
@@ -276,8 +388,8 @@ export function useGameState() {
       lastUsed: 0
     }));
 
-    setPlayer({
-      name, class: charClass, level: 1, exp: 0, maxExp: 100, gold: 5000000, gems: 100000,
+    updatePlayer(() => ({
+      name, class: charClass, level: 1, exp: 0, maxExp: 100, gold: INITIAL_WEALTH, gems: INITIAL_WEALTH,
       stats, inventory: [], equipped: {}, dungeonLevel: 1, shadowArmy: 0, sortOrder: 'rarity',
       activeQuests: QUEST_POOL.filter(q => q.levelReq <= 1).map(q => ({
         ...q, id: Math.random().toString(36).substr(2, 9), current: 0, isCompleted: false
@@ -286,12 +398,15 @@ export function useGameState() {
       skillPoints: 5,
       attributePoints: 10,
       unlockedGates: [1],
-      currentGateId: 1
-    });
+      currentGateId: 1,
+      shopInventory: SLOTS.map(slot => generateLoot(10)), // Initial shop
+      lastShopRefresh: Date.now(),
+      activeSetBonuses: []
+    }));
   };
 
   const upgradeSkill = (skillId: string) => {
-    setPlayer(prev => {
+    updatePlayer(prev => {
       if (!prev || prev.skillPoints <= 0) return prev;
       audio.playSkill();
       const updatedSkills = prev.skills.map(s => 
@@ -302,29 +417,55 @@ export function useGameState() {
   };
 
   const processBattle = useCallback(() => {
-    setPlayer(prev => {
+    updatePlayer(prev => {
       if (!prev) return null;
       const { stats: eff } = calculateEffectiveStats(prev);
       
-      // Gate Difficulty Multiplier
+      // Get unique monster for this level/gate
+      const seed = prev.dungeonLevel + (RARITIES.indexOf(prev.currentGateId as any || 'Common') * 100);
+      const monster = getMonster(seed);
+      
+      // Scale monster based on gate
       const gateDiffMap: Record<string, number> = { 'E': 1, 'D': 5, 'C': 15, 'B': 40, 'A': 100, 'S': 250, 'M': 1000, 'V': 5000 };
       const gateMult = gateDiffMap[prev.currentGateId as string] || 1;
       
-      const monsterHp = (prev.dungeonLevel * 100 * gateMult) * (floorModifier?.name === 'Healer Guardian' ? 1.5 : 1);
-      const monsterAtk = prev.dungeonLevel * 10 * gateMult;
+      const isBoss = prev.dungeonLevel % 10 === 0;
+      let monsterHp = monster.hp * gateMult * (floorModifier?.name === 'Healer Guardian' ? 1.5 : 1);
+      let monsterAtk = monster.atk * gateMult;
+
+      let expReward = (isBoss ? 200 : 20) * gateMult;
+      let goldReward = (floorModifier?.name === 'Treasure Room' ? 500 : 100) * gateMult;
+      let gemReward = (floorModifier?.name === 'Treasure Room' ? 5 : 1) * gateMult;
+
+      if (isBoss) {
+        monsterHp *= 10; 
+        monsterAtk *= 3; // Unity script says 3x ATK for boss
+        expReward *= 10; // Unity script says 10x EXP for boss
+        goldReward *= 20; // Unity script says 20x Gold for boss
+        setBattleLog(logs => [`⚠️ WARNING: BOSS detected! Prepare for combat!`, ...logs]);
+      }
       
-      const playerDamage = eff.ATK;
+      let playerDamage = eff.ATK;
+      
+      // Critical Hit System (from Unity script logic: Random(1,100) <= LUK)
+      const isCritical = Math.random() * 100 <= eff.LUK;
+      if (isCritical) {
+        playerDamage *= 2;
+        setBattleLog(logs => [`💥 CRITICAL HIT!`, ...logs].slice(0, 20));
+      }
       
       // Elemental Advantage
       const weaponElement = prev.equipped.Weapon?.element || 'Physical';
-      const monsterElement = (['Fire', 'Ice', 'Electric', 'Earth', 'Wind', 'Water', 'Dark', 'Light'] as Element[])[Math.floor(Math.random() * 8)]; // Mimic monster element
+      const monsterElement = monster.element;
       
       let elementMultiplier = 1;
       
       if (ELEMENTAL_ADVANTAGES[weaponElement as Element]?.includes(monsterElement)) {
         elementMultiplier = 1.5;
+        setBattleLog(logs => [`✨ Elemental Advantage! (${weaponElement} > ${monsterElement})`, ...logs].slice(0, 20));
       } else if (ELEMENTAL_ADVANTAGES[monsterElement as Element]?.includes(weaponElement as Element)) {
         elementMultiplier = 0.5;
+        setBattleLog(logs => [`⚠️ Elemental Disadvantage! (${monsterElement} > ${weaponElement})`, ...logs].slice(0, 20));
       }
 
       const finalPlayerDamage = playerDamage * elementMultiplier;
@@ -336,13 +477,40 @@ export function useGameState() {
         const newLoot = Array.from({ length: dropCount }).map(() => generateLoot(prev.dungeonLevel * gateMult));
         const isBoss = prev.dungeonLevel % 10 === 0;
         
+        // Log battle start
+        setBattleLog(logs => [`⚔️ Fighting ${monster.name} (${monster.rank})`, ...logs].slice(0, 20));
+
         let p = { 
             ...prev, 
-            gold: prev.gold + (floorModifier?.name === 'Treasure Room' ? 500 : 100) * gateMult,
-            gems: prev.gems + (floorModifier?.name === 'Treasure Room' ? 5 : 1) * gateMult,
+            gold: prev.gold + goldReward,
+            gems: prev.gems + gemReward,
             dungeonLevel: prev.dungeonLevel + 1, 
             inventory: [...prev.inventory, ...newLoot].slice(0, 100) 
         };
+
+        // Update Quests
+        const updatedQuests = (p.activeQuests || []).map(q => {
+          if (q.isCompleted) return q;
+          
+          let updatedCurrent = q.current;
+          if (q.name === 'Skeleton Slayer') updatedCurrent += 1;
+          if (q.name === 'The Awakening') updatedCurrent = Math.max(updatedCurrent, p.dungeonLevel);
+          if (q.name === 'Blacksmith’s Favor') updatedCurrent = Math.max(updatedCurrent, p.dungeonLevel);
+          if (q.name === 'The Red Gate') updatedCurrent = Math.max(updatedCurrent, p.dungeonLevel);
+          if (q.name === 'God of the Dungeon') updatedCurrent = Math.max(updatedCurrent, p.dungeonLevel);
+
+          const isNowCompleted = updatedCurrent >= q.target;
+          if (isNowCompleted && !q.isCompleted) {
+            setBattleLog(logs => [`🏆 QUEST COMPLETED: ${q.name}!`, ...logs]);
+            audio.playLevelUp();
+            p.gold += q.rewardGold;
+            p.gems += q.rewardGems;
+            p.exp += q.rewardExp;
+          }
+          
+          return { ...q, current: updatedCurrent, isCompleted: isNowCompleted };
+        });
+        p.activeQuests = updatedQuests;
 
         // New Modifier for next floor
         setFloorModifier(isBoss ? null : MODIFIERS[Math.floor(Math.random() * MODIFIERS.length)]);
@@ -356,27 +524,30 @@ export function useGameState() {
             setBattleLog(logs => [`⚔️ Victory! Found ${lootNames}`, ...logs].slice(0, 20));
         }
 
-        p.exp += (isBoss ? 200 : 20);
+        p.exp += expReward;
         
-        // Level Up Logic
-        if (p.exp >= p.maxExp) {
+        // Level Up Logic from Unity Script
+        while (p.exp >= p.maxExp) {
           audio.playLevelUp();
-          const classGrowth = CLASS_GROWTH[p.class] || { STR: 1, AGI: 1, INT: 1, VIT: 1, DEX: 1, LUK: 1 };
           p.level += 1;
           p.exp -= p.maxExp;
-          p.maxExp = Math.round(p.maxExp * 1.5);
+          p.maxExp = p.level * 500; // Next level exp = level * 500
           p.skillPoints += 1;
           p.attributePoints += 10;
           
-          // Automatic growth for ALL primary stats
-          p.stats.STR += 1;
-          p.stats.AGI += 1;
-          p.stats.INT += 1;
-          p.stats.VIT += 1;
-          p.stats.DEX += 1;
+          // Specific stat gains from Unity script
+          p.stats.STR += 2;
+          p.stats.AGI += 2;
+          p.stats.INT += 2;
+          p.stats.VIT += 2;
+          p.stats.DEX += 2;
           p.stats.LUK += 1;
+          p.stats.DEF += 2;
+          p.stats.ATK += 3;
+          p.stats.HP += 100; // Unity says HP+10, but context is different. Script sets hp = stats.HP * 100.
+          p.stats.MP += 50;
 
-          // Bonus class-specific growth
+          const classGrowth = CLASS_GROWTH[p.class] || {};
           Object.keys(classGrowth).forEach(key => {
             if (['STR', 'AGI', 'INT', 'VIT', 'DEX', 'LUK', 'ATK', 'DEF'].includes(key)) {
               (p.stats as any)[key] += (classGrowth as any)[key] || 0;
@@ -384,8 +555,8 @@ export function useGameState() {
           });
 
           // Core Recalculation
-          p.stats.MAX_HP = 500 + (p.stats.VIT * 20);
-          p.stats.MAX_MP = 200 + (p.stats.INT * 15);
+          p.stats.MAX_HP = 1000 + (p.stats.HP); // Simplified but aligned with script's starting values
+          p.stats.MAX_MP = 500 + (p.stats.MP);
           p.stats.HP = p.stats.MAX_HP;
           p.stats.MP = p.stats.MAX_MP;
           
@@ -407,7 +578,7 @@ export function useGameState() {
   }, [isAutoBattle, processBattle]);
 
   const recycleItems = useCallback((targetRarity: Rarity | 'AllBelowEpic') => {
-    setPlayer(prev => {
+    updatePlayer(prev => {
       if (!prev) return null;
       const raritiesBelowEpic = ['Common', 'Uncommon', 'Rare', 'Unique'];
       const toRecycle = targetRarity === 'AllBelowEpic' 
@@ -417,37 +588,43 @@ export function useGameState() {
       const totalExp = toRecycle.reduce((acc, i) => acc + (RARITIES.indexOf(i.rarity) + 1) * 10, 0);
       return { ...prev, inventory: remaining, exp: prev.exp + totalExp };
     });
-  }, []);
+  }, [updatePlayer]);
 
   const upgradeItem = (slot: Slot) => {
-    setPlayer(prev => {
+    updatePlayer(prev => {
       if (!prev || !prev.equipped[slot]) return prev;
       const item = { ...prev.equipped[slot]! };
-      const currentLevel = item.level % 100; // Use level within tier for upgrade logic
-      const cost = Math.floor((currentLevel + 1) * 10000);
       
-      if (prev.gold < cost) {
-        setBattleLog(logs => [`❌ Not enough gold to forge (+${cost})!`, ...logs]);
+      if (item.upgradeLevel >= 500) {
+        setBattleLog(logs => [`✨ ${item.name} is already at MAX LEVEL!`, ...logs]);
         return prev;
       }
 
-      const successRate = Math.max(5, 100 - (currentLevel * 5));
-      const roll = Math.random() * 100;
+      // Cost starts at 50,000 and scales with upgrade level
+      const cost = 50000 + (item.upgradeLevel * 10000);
       
-      if (roll <= successRate) {
+      if (prev.gold < cost) {
+        setBattleLog(logs => [`❌ Not enough gold for forge (+${cost})!`, ...logs]);
+        return prev;
+      }
+
+      // Success chance: 70% as per snippet
+      const success = Math.random() < 0.7;
+      
+      if (success) {
         audio.playLevelUp();
-        item.level++;
-        item.statBonus = Math.round(item.statBonus * 1.1);
-        setBattleLog(logs => [`✨ SUCCESS! ${item.name} is now Level ${item.level}!`, ...logs]);
+        item.upgradeLevel++;
+        // Boost stats by 15% per upgrade level
+        item.statBonus = Math.round(item.statBonus * 1.15);
+        setBattleLog(logs => [`✨ SUCCESS! ${item.name} is now +${item.upgradeLevel}!`, ...logs]);
       } else {
         audio.playHit();
-        const failurePenalty = Math.random() > 0.7; // 30% chance to drop a level
-        if (failurePenalty && item.level > 1) {
-          item.level--;
-          item.statBonus = Math.round(item.statBonus / 1.1);
-          setBattleLog(logs => [`💢 FAILURE! ${item.name} dropped to Level ${item.level}!`, ...logs]);
+        if (item.upgradeLevel > 0) {
+          item.upgradeLevel--;
+          item.statBonus = Math.round(item.statBonus / 1.15);
+          setBattleLog(logs => [`💢 FAILED! ${item.name} dropped to +${item.upgradeLevel}!`, ...logs]);
         } else {
-          setBattleLog(logs => [`💨 FORGE FAILED! ${item.name} level maintained.`, ...logs]);
+          setBattleLog(logs => [`💨 FORGE FAILED! ${item.name} remained at +0.`, ...logs]);
         }
       }
 
@@ -466,7 +643,7 @@ export function useGameState() {
   const buyChest = (cost: number) => {
     if (!player || player.gold < cost) return null;
     const loot = generateLoot(player.dungeonLevel + 100);
-    setPlayer(prev => {
+    updatePlayer(prev => {
       if (!prev) return null;
       return autoEquip({ ...prev, gold: prev.gold - cost, inventory: [...prev.inventory, loot].slice(0, 100) });
     });
@@ -474,18 +651,18 @@ export function useGameState() {
   };
 
   const unequip = useCallback((slot: Slot) => {
-    setPlayer(prev => {
+    updatePlayer(prev => {
       if (!prev || !prev.equipped[slot]) return prev;
       const item = prev.equipped[slot]!;
       const updatedEquipped = { ...prev.equipped };
       delete updatedEquipped[slot];
       return { ...prev, equipped: updatedEquipped, inventory: [...prev.inventory, item].slice(0, 100) };
     });
-  }, []);
+  }, [updatePlayer]);
 
   const equipItem = useCallback((item: GameItem) => {
     audio.playPickup();
-    setPlayer(prev => {
+    updatePlayer(prev => {
       if (!prev) return null;
       const slot = item.type;
       const currentEquipped = prev.equipped[slot];
@@ -497,53 +674,54 @@ export function useGameState() {
         equipped: { ...prev.equipped, [slot]: item }
       };
     });
-  }, []);
+  }, [updatePlayer]);
 
   const discardItem = useCallback((itemId: string) => {
-    setPlayer(prev => {
+    updatePlayer(prev => {
       if (!prev) return null;
       return {
         ...prev,
         inventory: prev.inventory.filter(i => i.id !== itemId)
       };
     });
-  }, []);
+  }, [updatePlayer]);
 
-  const allocateAttribute = useCallback((stat: keyof Stats) => {
-    setPlayer(prev => {
+  const allocateAttribute = useCallback((stat: keyof Stats, amount: number = 1) => {
+    updatePlayer(prev => {
       if (!prev || prev.attributePoints <= 0) return prev;
+      const pointsToAllocate = Math.min(amount, prev.attributePoints);
       return {
         ...prev,
-        attributePoints: prev.attributePoints - 1,
+        attributePoints: prev.attributePoints - pointsToAllocate,
         stats: {
           ...prev.stats,
-          [stat]: (prev.stats as any)[stat] + 1
+          [stat]: (prev.stats as any)[stat] + pointsToAllocate
         }
       };
     });
-  }, []);
+  }, [updatePlayer]);
 
   return {
     player: effectivePlayer, createCharacter, isAutoBattle, setIsAutoBattle, ariseAvailable, 
     arise: () => {
-      setPlayer(prev => prev ? { ...prev, shadowArmy: prev.shadowArmy + 1 } : null);
+      updatePlayer(prev => prev ? { ...prev, shadowArmy: prev.shadowArmy + 1 } : null);
       setAriseAvailable(false);
       setBattleLog(logs => [`🌑 SHADOW EXTRACTED! Your army grows...`, ...logs]);
     },
     hasStarted, setHasStarted, battleLog, upgradeItem, recycleItems, buyChest, buySpecificItem, unequip, allocateAttribute, equipItem, discardItem,
     triggerAutoEquip: () => {
       audio.playPickup();
-      setPlayer(p => p ? autoEquip(p) : null);
+      updatePlayer(p => p ? autoEquip(p) : null);
     },
     summonShadow: () => {
-      setPlayer(prev => {
+      updatePlayer(prev => {
         if (!prev || prev.gems < 500) return prev;
         setBattleLog(logs => [`🌒 A new shadow rises from the void!`, ...logs]);
         return { ...prev, gems: prev.gems - 500, shadowArmy: prev.shadowArmy + 1 };
       });
     },
-    setSortOrder: (order: SortOption) => setPlayer(p => p ? { ...p, sortOrder: order } : null),
+    setSortOrder: (order: SortOption) => updatePlayer(p => p ? { ...p, sortOrder: order } : null),
     sortedInventory, upgradeSkill, floorModifier, claimDailyReward, switchGate,
-    resetSave: () => { localStorage.removeItem('player_save'); setPlayer(null); }
+    user, login, logout, resetSave: () => logout(), loading
   };
 }

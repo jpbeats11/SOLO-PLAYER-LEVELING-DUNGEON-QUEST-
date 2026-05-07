@@ -1,8 +1,9 @@
 import React, { useEffect, useState, useCallback } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import { Sword, Skull, Zap, Heart, Flame, Ghost } from 'lucide-react';
-import { PlayerData, Skill } from '../types';
+import { PlayerData, Skill, Monster } from '../types';
 import { audio } from '../services/audioService';
+import { generateFloorMobs } from '../services/monsterService';
 
 interface DungeonMapViewProps {
   player: PlayerData;
@@ -21,12 +22,11 @@ interface Projectile {
 export const DungeonMapView: React.FC<DungeonMapViewProps> = ({ player, isAutoBattle, onBattleTick }) => {
   const [playerPos, setPlayerPos] = useState({ x: 50, y: 50 });
   const [playerAnimState, setPlayerAnimState] = useState<'idle' | 'walking' | 'attacking'>('idle');
-  const [mobs, setMobs] = useState<{ 
-    id: number, x: number, y: number, hp: number, maxHp: number, 
-    spawnX: number, spawnY: number, isBoss?: boolean, state?: 'idle' | 'charging' | 'attacking',
-    abilityCooldown?: number, dangerZone?: { x: number, y: number, radius: number } | null,
-    facing: 'left' | 'right'
-  }[]>([]);
+  const [mobs, setMobs] = useState<(Monster & { 
+    state?: 'idle' | 'charging' | 'attacking',
+    abilityCooldown?: number, 
+    dangerZone?: { x: number, y: number, radius: number } | null 
+  })[]>([]);
   const [projectiles, setProjectiles] = useState<Projectile[]>([]);
   const [effects, setEffects] = useState<{ id: number, x: number, y: number, type: 'slash' | 'damage' | 'fireball' | 'impact' | 'warning', value?: number }[]>([]);
   const [playerFrame, setPlayerFrame] = useState(0);
@@ -70,35 +70,14 @@ export const DungeonMapView: React.FC<DungeonMapViewProps> = ({ player, isAutoBa
   // Generate mobs or Boss (Expanded Map Areas)
   useEffect(() => {
     if (mobs.length === 0) {
-      if (isBossFloor) {
-        setMobs([{
-          id: Date.now(),
-          x: 50, y: 50,
-          maxHp: 500 + (player.dungeonLevel * 50),
-          hp: 500 + (player.dungeonLevel * 50),
-          spawnX: 50, spawnY: 50,
-          isBoss: true,
-          state: 'idle',
-          facing: 'left',
-          abilityCooldown: 20
-        }]);
-      } else {
-        const newMobs = Array.from({ length: 5 }).map((_, i) => {
-          const rx = Math.random() * 200 - 50; // Map range -50 to 150
-          const ry = Math.random() * 200 - 50;
-          return {
-            id: Math.random() + i,
-            x: rx,
-            y: ry,
-            spawnX: rx,
-            spawnY: ry,
-            maxHp: 100, hp: 100,
-            facing: Math.random() > 0.5 ? 'right' : 'left',
-            abilityCooldown: 30 + i * 10
-          };
-        });
-        setMobs(newMobs);
-      }
+      const generatedMobs = generateFloorMobs(player.dungeonLevel, isBossFloor ? 1 : 5);
+      const mappedMobs = generatedMobs.map(m => ({
+        ...m,
+        id: m.id + Math.random(), // Unique ID for state
+        state: 'idle' as const,
+        abilityCooldown: 20
+      }));
+      setMobs(mappedMobs as any);
 
       // Spawn shadow soldiers
       if (player.shadowArmy > 0) {
@@ -353,33 +332,55 @@ export const DungeonMapView: React.FC<DungeonMapViewProps> = ({ player, isAutoBa
     }
   }, [effects.length]);
 
+  const currentBiome = mobs[0]?.biome || 'Void';
+  const getBiomeColors = (biome: string) => {
+    switch (biome) {
+      case 'Dark Forest': return 'from-emerald-950/40 via-black to-black';
+      case 'Volcanic Ashlands': return 'from-orange-950/40 via-black to-black';
+      case 'Icebound Tundra': return 'from-cyan-950/40 via-black to-black';
+      case 'Abyssal Depths': return 'from-blue-950/40 via-black to-black';
+      case 'Undead Swarm': return 'from-purple-950/40 via-black to-black';
+      default: return 'from-gray-950/40 via-black to-black';
+    }
+  };
+
   return (
     <motion.div 
       ref={viewportRef}
       animate={shake ? { x: [-2, 2, -2, 2, 0], y: [-2, 2, -2, 2, 0] } : {}}
-      className={`relative w-full h-[400px] bg-[#050508] border-2 border-cyan-500/20 rounded-2xl overflow-hidden shadow-[inset_0_0_100px_rgba(0,0,0,1)] ${
+      className={`relative w-full h-[500px] bg-[#050508] border-2 border-cyan-500/20 rounded-2xl overflow-hidden shadow-[inset_0_0_100px_rgba(0,0,0,1)] group ${
         modifier?.name === 'Mana Leak' ? 'after:content-[""] after:absolute after:inset-0 after:bg-blue-500/10 after:pointer-events-none' : ''
       }`}
     >
+      {/* High-Tech Grid & Scanlines */}
+      <div className="absolute inset-0 pointer-events-none opacity-20 z-0">
+        <div className="absolute inset-0 bg-[url('https://www.transparenttextures.com/patterns/carbon-fibre.png')] scale-150" />
+        <div className="absolute inset-0 bg-[linear-gradient(rgba(18,16,16,0)_50%,rgba(0,0,0,0.25)_50%),linear-gradient(90deg,rgba(255,0,0,0.06),rgba(0,255,0,0.02),rgba(0,0,255,0.06))] bg-[length:100%_2px,3px_100%] pointer-events-none" />
+      </div>
+
       <div 
-        className="absolute inset-0 transition-transform duration-[400ms] ease-out will-change-transform"
+        className={`absolute inset-0 transition-all duration-[600ms] ease-out bg-gradient-to-t ${getBiomeColors(currentBiome)}`}
         style={{ transform: `translate(${-camera.x}%, ${-camera.y}%)` }}
       >
-        {/* Infinite Grid Background */}
-        <div className="absolute inset-[-500%] opacity-10" 
+        {/* Hexagonal Tech Grid */}
+        <div className="absolute inset-[-500%] opacity-[0.05]" 
           style={{ 
-            backgroundImage: `radial-gradient(circle, #06b6d4 1px, transparent 1px)`,
-            backgroundSize: '40px 40px'
+            backgroundImage: `url("data:image/svg+xml,%3Csvg width='60' height='60' viewBox='0 0 60 60' xmlns='http://www.w3.org/2000/svg'%3E%3Cpath d='M30 0l25.98 15v30L30 60 4.02 45V15z' fill-opacity='0.2' fill='%2306b6d4' fill-rule='evenodd'/%3E%3C/svg%3E")`,
+            backgroundSize: '60px 60px'
           }} 
         />
         
-        {/* World Particles / Dust */}
-        <div className="absolute inset-[-200%] pointer-events-none opacity-20">
-           {Array.from({ length: 20 }).map((_, i) => (
+        {/* World Particles */}
+        <div className="absolute inset-[-200%] pointer-events-none">
+           {Array.from({ length: 40 }).map((_, i) => (
               <div 
                 key={i}
-                className="absolute w-1 h-1 bg-cyan-400 rounded-full animate-pulse"
-                style={{ left: `${Math.random() * 400 - 150}%`, top: `${Math.random() * 400 - 150}%` }}
+                className="absolute w-0.5 h-0.5 bg-cyan-400 rounded-full animate-pulse shadow-[0_0_10px_#06b6d4]"
+                style={{ 
+                  left: `${(Math.sin(i) * 1000 + 500) % 400 - 150}%`, 
+                  top: `${(Math.cos(i) * 1000 + 500) % 400 - 150}%`,
+                  opacity: Math.random() * 0.5 + 0.1
+                }}
               />
            ))}
         </div>
@@ -417,6 +418,7 @@ export const DungeonMapView: React.FC<DungeonMapViewProps> = ({ player, isAutoBa
               filter: 'blur(1px) brightness(0.5) sepia(1) saturate(5) hue-rotate(240deg)',
               y: shadow.state === 'attacking' ? [0, -5, 0] : 0
             }}
+            transition={{ y: { type: 'tween', duration: 0.5 } }}
             className="absolute -ml-3 -mt-3 z-20 pointer-events-none"
           >
             <div className="w-6 h-6 bg-purple-900/50 border border-purple-500 rounded-full flex items-center justify-center shadow-[0_0_10px_rgba(168,85,247,0.5)]">
@@ -442,25 +444,41 @@ export const DungeonMapView: React.FC<DungeonMapViewProps> = ({ player, isAutoBa
                 filter: mob.hp < (mob.maxHp * 0.4) ? 'brightness(1.5) saturate(2) contrast(1.2)' : 'none',
                 scaleX: mob.facing === 'right' ? -1 : 1
               }}
-            transition={{ type: 'spring', stiffness: 300, damping: 20 }}
+            transition={{ 
+              type: 'spring', stiffness: 300, damping: 20,
+              y: { type: 'tween', duration: 0.4 } 
+            }}
             exit={{ opacity: 0, scale: 2 }}
             className={`absolute -ml-4 -mt-4 transition-all duration-100 ease-linear ${mob.isBoss ? 'z-20' : 'z-10'}`}
           >
             <div className="flex flex-col items-center">
-              <div className={`relative ${mob.isBoss ? 'w-14 h-16' : 'w-10 h-12'} transition-all`}>
+              <div className={`relative ${mob.isBoss ? 'w-16 h-20' : 'w-10 h-12'} transition-all group/mob`}>
+                  {/* Digital Glitch Effect for Bosses */}
+                  {mob.isBoss && (
+                    <div className="absolute inset-0 bg-red-500/20 animate-ping rounded-full scale-110" />
+                  )}
                   {/* Sprite Skeleton Simulation */}
-                  <div className={`absolute bottom-0 w-full h-1/2 bg-gray-900 rounded-lg border-x-2 border-b-2 ${mob.isBoss ? 'border-red-600 shadow-[0_0_20px_#ef4444]' : 'border-gray-700'} transition-all`} />
-                  <div className={`absolute top-0 w-full h-2/3 bg-gray-800 rounded-full border-2 ${mob.isBoss ? 'border-red-500' : 'border-gray-600'} flex items-center justify-center`}>
-                    <Skull className={`w-1/2 h-1/2 ${mob.isBoss ? 'text-white' : 'text-gray-400'}`} />
+                  <div 
+                    className={`absolute bottom-0 w-full h-1/2 bg-gray-900 rounded-lg border-x-2 border-b-2 ${mob.isBoss ? 'border-red-600 shadow-[0_0_20px_#ef4444]' : 'border-cyan-500/30'} transition-all`}
+                    style={{ backgroundColor: mob.element === 'Fire' ? '#450a0a' : mob.element === 'Ice' ? '#0c4a6e' : mob.element === 'Electric' ? '#422006' : '#111827' }}
+                  />
+                  <div className={`absolute top-0 w-full h-2/3 bg-gray-800 rounded-full border-2 ${mob.isBoss ? 'border-red-500 shadow-[0_0_15px_rgba(239,68,68,0.5)]' : 'border-cyan-500/50'} flex flex-col items-center justify-center p-1`}>
+                    <Skull className={`w-1/2 h-1/2 ${mob.isBoss ? 'text-red-400' : 'text-cyan-400/60'}`} />
+                    <div className="text-[4px] font-black uppercase text-cyan-500/50 line-clamp-1">{mob.element}</div>
                   </div>
                   {mob.state === 'attacking' && (
                     <motion.div 
                       animate={{ rotate: [0, -45, 0], scale: [1, 1.5, 1] }}
+                      transition={{ duration: 0.3 }}
                       className="absolute -right-4 top-0"
                     >
                       <Sword size={mob.isBoss ? 20 : 14} className="text-red-500" />
                     </motion.div>
                   )}
+              </div>
+              <div className="absolute -top-10 w-32 left-1/2 -translate-x-1/2 text-center flex flex-col items-center gap-0.5 pointer-events-none">
+                <span className="text-[6px] font-black text-gray-400 uppercase tracking-widest bg-black/60 px-1 rounded">{mob.rank}</span>
+                <span className={`text-[8px] font-black ${mob.isBoss ? 'text-red-500' : 'text-white'} italic drop-shadow-[0_2px_2px_rgba(0,0,0,1)] uppercase truncate w-full`}>{mob.name}</span>
               </div>
               <div className="mt-1 w-full h-1 bg-gray-800/80 rounded-full overflow-hidden border border-gray-700">
                 <div className="h-full bg-red-500 transition-all duration-300" style={{ width: `${(mob.hp / mob.maxHp) * 100}%` }} />
@@ -548,10 +566,12 @@ export const DungeonMapView: React.FC<DungeonMapViewProps> = ({ player, isAutoBa
                 {/* Legs */}
                 <motion.div 
                   animate={playerAnimState === 'walking' ? { rotate: [15, -15, 15] } : { rotate: 0 }}
+                  transition={{ type: "tween", duration: 0.3 }}
                   className="absolute bottom-0 left-2 w-3 h-5 bg-cyan-900 border border-cyan-500/50 rounded-full" 
                 />
                 <motion.div 
                   animate={playerAnimState === 'walking' ? { rotate: [-15, 15, -15] } : { rotate: 0 }}
+                  transition={{ type: "tween", duration: 0.3 }}
                   className="absolute bottom-0 right-2 w-3 h-5 bg-cyan-900 border border-cyan-500/50 rounded-full" 
                 />
                 {/* Body */}
@@ -564,6 +584,7 @@ export const DungeonMapView: React.FC<DungeonMapViewProps> = ({ player, isAutoBa
                 {/* Head */}
                 <motion.div 
                   animate={playerAnimState === 'walking' ? { y: [0, -2, 0] } : { y: 0 }}
+                  transition={{ type: "tween", duration: 0.3 }}
                   className="absolute -top-1 left-1/2 -translate-x-1/2 w-8 h-8 bg-black border-2 border-cyan-400 rounded-full shadow-[0_0_10px_#06b6d4]"
                 >
                    {/* Glowing Eyes */}
@@ -580,7 +601,10 @@ export const DungeonMapView: React.FC<DungeonMapViewProps> = ({ player, isAutoBa
                       rotate: playerAnimState === 'attacking' ? [0, -120, 20, 0] : [0, 5, 0],
                       scale: playerAnimState === 'attacking' ? 1.5 : 1
                     }}
-                    transition={{ duration: 0.2 }}
+                    transition={{ 
+                      rotate: { duration: 0.2, ease: "easeInOut" },
+                      scale: { duration: 0.2 }
+                    }}
                     className="absolute -right-2 top-4 origin-bottom"
                   >
                      <Sword className="text-yellow-400 drop-shadow-[0_0_10px_#eab308]" />
@@ -608,34 +632,63 @@ export const DungeonMapView: React.FC<DungeonMapViewProps> = ({ player, isAutoBa
       </div>
 
       {/* Static HUD Overlay (Fixed to Viewport) */}
-      <div className="absolute top-0 left-0 right-0 p-4 flex justify-between items-start pointer-events-none z-50">
-        <div className="flex flex-col gap-2">
-           <div className="bg-black/90 backdrop-blur-xl border border-cyan-500/30 px-5 py-2 rounded-2xl flex items-center gap-4 shadow-[0_0_30px_rgba(6,182,212,0.2)]">
-              <div className="w-10 h-10 bg-cyan-900/40 rounded-xl border border-cyan-500/30 flex items-center justify-center">
-                 <Ghost className="text-cyan-400 w-6 h-6 animate-pulse" />
-              </div>
-              <div>
-                 <div className="text-[10px] font-black text-cyan-500 uppercase tracking-[0.2em]">Current Gate</div>
-                 <div className="text-lg font-black text-white italic leading-tight">FLOOR {player.dungeonLevel}</div>
-              </div>
-           </div>
-           
-           {modifier && (
-              <div className="bg-orange-500/10 border border-orange-500/40 px-4 py-1.5 rounded-full flex items-center gap-2 animate-bounce">
-                 <Flame size={12} className="text-orange-500" />
-                 <span className="text-[10px] font-black text-orange-400 uppercase tracking-widest">{modifier.name} ACTIVE</span>
-              </div>
-           )}
+      <div className="absolute inset-0 pointer-events-none z-50 p-6 flex flex-col justify-between">
+        <div className="flex justify-between items-start">
+          <div className="flex flex-col gap-3">
+             <div className="bg-black/60 backdrop-blur-md border border-cyan-500/30 p-4 rounded-xl flex items-center gap-4 shadow-[0_0_30px_rgba(6,182,212,0.1)] relative overflow-hidden group">
+                <div className="absolute top-0 left-0 w-full h-0.5 bg-cyan-500/30 group-hover:bg-cyan-400 transition-colors" />
+                <div className="w-12 h-12 bg-cyan-900/40 rounded-lg border border-cyan-500/30 flex items-center justify-center relative">
+                   <Ghost className="text-cyan-400 w-7 h-7 animate-pulse" />
+                   <div className="absolute -top-1 -right-1 w-2 h-2 bg-cyan-400 rounded-full animate-ping" />
+                </div>
+                <div>
+                   <div className="flex items-center gap-2">
+                      <div className="w-1.5 h-1.5 bg-cyan-400 rounded-full animate-blink" />
+                      <div className="text-[10px] font-black text-cyan-500 uppercase tracking-[0.3em]">Sector {Math.floor(player.dungeonLevel / 10) + 1}</div>
+                   </div>
+                   <div className="text-xl font-black text-white italic tracking-tighter leading-tight drop-shadow-[0_0_10px_rgba(255,255,255,0.3)]">FLOOR {player.dungeonLevel}</div>
+                </div>
+             </div>
+             
+             {modifier && (
+                <div className="bg-orange-500/10 border border-orange-500/30 px-3 py-1 rounded-full flex items-center gap-2 self-start animate-fade-in-down">
+                   <Flame size={10} className="text-orange-500" />
+                   <span className="text-[9px] font-black text-orange-400 uppercase tracking-widest leading-none">{modifier.name} PROTOCOL</span>
+                </div>
+             )}
+          </div>
+
+          <div className="flex flex-col items-end gap-3">
+             <div className="bg-black/60 backdrop-blur-md border border-red-500/30 p-4 rounded-xl flex items-center gap-4 shadow-[0_0_30px_rgba(239,68,68,0.1)] relative overflow-hidden">
+                <div className="absolute top-0 right-0 w-full h-0.5 bg-red-500/30" />
+                <div className="text-right">
+                   <div className="text-[10px] font-black text-red-500 uppercase tracking-[0.3em]">Targets Detected</div>
+                   <div className="text-xl font-black text-white italic tracking-tighter leading-tight">{mobs.length} ENTITIES</div>
+                </div>
+                <div className="w-12 h-12 bg-red-900/40 rounded-lg border border-red-500/30 flex items-center justify-center">
+                   <Skull className="text-red-500 w-7 h-7 animate-pulse" />
+                </div>
+             </div>
+             
+             <div className="text-[8px] font-mono text-gray-500 uppercase tracking-widest bg-black/40 px-2 py-0.5 border border-gray-800 rounded">
+                LATENCY: 12ms | SYNC: OPTIMAL
+             </div>
+          </div>
         </div>
 
-        <div className="flex flex-col items-end gap-2">
-           <div className="bg-black/90 backdrop-blur-xl border border-red-500/30 px-5 py-2 rounded-2xl flex items-center gap-4 shadow-[0_0_30px_rgba(239,68,68,0.2)]">
-              <div className="text-right">
-                 <div className="text-[10px] font-black text-red-500 uppercase tracking-[0.2em]">Mob Count</div>
-                 <div className="text-lg font-black text-white italic leading-tight">{mobs.length} REMAINING</div>
+        <div className="flex justify-center items-end">
+           <div className="w-full max-w-sm bg-black/60 backdrop-blur-md border border-cyan-500/20 p-2 rounded-lg flex flex-col gap-1">
+              <div className="flex justify-between items-center px-1">
+                 <span className="text-[8px] font-black text-cyan-400 uppercase tracking-widest">Player Status: Online</span>
+                 <span className="text-[8px] font-mono text-cyan-400/60 uppercase">Unit-01 // Level {player.level}</span>
               </div>
-              <div className="w-10 h-10 bg-red-900/40 rounded-xl border border-red-500/30 flex items-center justify-center">
-                 <Skull className="text-red-500 w-6 h-6 animate-pulse" />
+              <div className="w-full h-1.5 bg-gray-950 rounded-full border border-gray-800 overflow-hidden relative">
+                 <motion.div 
+                   className="h-full bg-gradient-to-r from-cyan-600 to-cyan-400"
+                   initial={{ width: '100%' }}
+                   animate={{ width: `${(player.stats.HP / player.stats.MAX_HP) * 100}%` }}
+                   transition={{ duration: 0.3 }}
+                 />
               </div>
            </div>
         </div>
